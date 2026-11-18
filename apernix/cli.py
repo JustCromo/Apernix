@@ -9,6 +9,7 @@ Codici di uscita: 0 = tutto ok, 1 = trovati problemi di rischio alto/critico, 2 
 from __future__ import annotations
 
 import json
+import os
 import shlex
 import sys
 from dataclasses import dataclass, field
@@ -18,6 +19,7 @@ import requests
 from apernix import __version__
 from apernix import fingerprint as fpr
 from apernix import report as rpt
+from apernix.guided import Guided, prompt_text
 from apernix.i18n import t
 from apernix.models import Finding
 from apernix.scope import Scope, ScopeError, load_scope
@@ -27,6 +29,7 @@ from apernix.web import active, checks
 from apernix.web.http import BudgetExceeded, OutOfScope, SafeClient
 
 EXIT_OK, EXIT_FINDINGS, EXIT_ERROR = 0, 1, 2
+PHASES = ("web", "nuclei", "nmap")
 DEFAULT_SCOPE = "scope.toml"
 DEFAULT_OUT = "apernix-reports"
 
@@ -44,6 +47,7 @@ class Opts:
     out: str = DEFAULT_OUT
     json: bool = False
     quick: bool = False
+    only: tuple[str, ...] = PHASES
     fmt: str = "md"
     args: list[str] = field(default_factory=list)
 
@@ -56,6 +60,12 @@ def parse_opts(cmd: str, argv: list[str]) -> Opts:
             o.json = True
         elif a == "--quick":
             o.quick = True
+        elif a == "--only":
+            value = next(it, None) or ""
+            chosen = tuple(p for p in PHASES if p in value.split(","))
+            if not chosen or any(p not in PHASES for p in value.split(",")):
+                raise CliError("err.usage", cmd=cmd)
+            o.only = chosen
         elif a in ("--scope", "--out", "--format"):
             value = next(it, None)
             if value is None or value.startswith("--"):
@@ -89,7 +99,7 @@ def cmd_help(o: Opts) -> int:
     if o.json:
         emit_json({"ok": True, "commands": {name: t(k) for name, (_, k) in COMMANDS.items()}})
         return EXIT_OK
-    out(paint(f"Apernix {__version__} — {t('app.tagline')}", "title"))
+    out(paint(f"APERNIX {__version__}", "brand") + f" — {t('app.tagline')}")
     out()
     out(t("help.title") + ":")
     for name, (_, key) in COMMANDS.items():
@@ -134,6 +144,7 @@ def cmd_scope(o: Opts) -> int:
 class ScanResult:
     findings: list[Finding] = field(default_factory=list)
     reached: list[str] = field(default_factory=list)
+    errors: dict = field(default_factory=dict)   # url → "tls" | "net"
     fingerprint: list[dict] = field(default_factory=list)
     services: dict = field(default_factory=dict)
     sources: dict = field(default_factory=dict)
@@ -148,23 +159,32 @@ def _step(progress, key: str, **kw) -> None:
     progress(f"  {symbol('arrow')} {t(key, **kw)}")
 
 
-def run_scan(sc: Scope, client: SafeClient, progress=lambda s: None, quick: bool = False) -> ScanResult:
+def run_scan(sc: Scope, client: SafeClient, progress=lambda s: None, quick: bool = False,
+             phases: tuple[str, ...] = PHASES) -> ScanResult:
     res = ScanResult()
-    res.source("apernix-web", "ok")
+    if quick:
+        phases = ("web",)
+    res.source("apernix-web", "ok" if "web" in phases else "skipped")
     for tg in sc.targets:
         progress(t("scan.start", url=tg.url))
-        _step(progress, "scan.phase.web")
         try:
             home = client.get(tg.url)
+        except requests.exceptions.SSLError:
+            res.errors[tg.url] = "tls"
+            continue
         except (requests.RequestException, OutOfScope, BudgetExceeded):
+            res.errors[tg.url] = "net"
             continue
         res.reached.append(tg.url)
-        res.findings.extend(checks.run_passive(home))
-        _step(progress, "scan.phase.fingerprint")
         res.fingerprint.append(fpr.from_response(home))
-        _step(progress, "scan.phase.active")
-        res.findings.extend(active.run_active(client, tg.url, home))
-        if quick:
+        if "web" in phases:
+            _step(progress, "scan.phase.web")
+            res.findings.extend(checks.run_passive(home))
+            if tg.ca_file and tg.scheme == "https":
+                res.findings.append(checks.private_ca(tg.url, os.path.basename(tg.ca_file)))
+            _step(progress, "scan.phase.active")
+            res.findings.extend(active.run_active(client, tg.url, home))
+        if "nuclei" not in phases:
             res.source("nuclei", "skipped")
             continue
         _step(progress, "scan.phase.nuclei")
@@ -174,7 +194,7 @@ def run_scan(sc: Scope, client: SafeClient, progress=lambda s: None, quick: bool
             res.findings.extend(found)
             res.fingerprint[-1]["technologies"] += [clean(x, 80) for x in tech[:20]]
         res.source("nuclei", "ok" if out.ok else out.reason)
-    if quick or sc.ports == "none":
+    if "nmap" not in phases or sc.ports == "none":
         res.source("nmap", "skipped")
         return res
     hosts = {}
@@ -202,31 +222,62 @@ def cmd_scan(o: Opts) -> int:
     sc = _scope(o)
     client = SafeClient(sc)
     progress = (lambda s: None) if o.json else (lambda s: out(paint(s, "info")))
-    res = run_scan(sc, client, progress, quick=o.quick)
+    res = run_scan(sc, client, progress, quick=o.quick, phases=o.only)
     if not res.reached:
+        if "tls" in res.errors.values():
+            raise CliError("err.tls")
         raise CliError("err.target_unreachable")
-    findings = res.findings
-    extra = {"fingerprint": res.fingerprint, "services": res.services,
-             "sources": [{"name": k, "status": v} for k, v in res.sources.items()]}
-    doc = rpt.build([x.url for x in sc.targets], findings, client.requests_made, extra)
     try:
-        folder = rpt.save(doc, o.out)
+        doc, folder = save_scan(sc, client, res, o.out)
     except rpt.ReportError as exc:
         raise CliError(exc.code) from exc
-    worst = any(f.level in ("high", "critical") for f in findings)
     if o.json:
-        doc = dict(doc, ok=True, saved=folder)
-        emit_json(doc)
+        emit_json(dict(doc, ok=True, saved=folder))
     else:
-        print_table(doc)
-        out()
-        for src in doc["sources"]:
-            if src["status"] != "ok":
-                out(paint(f"{symbol('warn')} " + t("scan.source_skipped", name=src["name"],
-                                                     status=t("source." + src["status"])), "warn"))
-        out(t("scan.done", n=len(findings)))
-        out(paint(t("scan.saved", path=clean(folder)), "dim"))
+        show_scan(doc, folder)
+    worst = any(f.level in ("high", "critical") for f in res.findings)
     return EXIT_FINDINGS if worst else EXIT_OK
+
+
+def save_scan(sc: Scope, client: SafeClient, res: ScanResult, out_dir: str) -> tuple[dict, str]:
+    extra = {"fingerprint": res.fingerprint, "services": res.services,
+             "sources": [{"name": k, "status": v} for k, v in res.sources.items()]}
+    doc = rpt.build([x.url for x in sc.targets], res.findings, client.requests_made, extra)
+    return doc, rpt.save(doc, out_dir)
+
+
+def show_scan(doc: dict, folder: str) -> None:
+    print_table(doc)
+    out()
+    for src in doc["sources"]:
+        if src["status"] not in ("ok", "skipped"):
+            out(paint(f"{symbol('warn')} " + t("scan.source_skipped", name=src["name"],
+                                                 status=t("source." + src["status"])), "warn"))
+    out(t("scan.done", n=len(doc["findings"])))
+    out(paint(t("scan.saved", path=clean(folder)), "dim"))
+
+
+def _line_editing() -> None:
+    try:
+        import readline  # noqa: F401  (frecce e cronologia nei prompt)
+    except ImportError:
+        pass
+
+
+def cmd_menu(o: Opts) -> int:
+    _line_editing()
+    def runner(sc: Scope, client: SafeClient, phases: tuple[str, ...]):
+        res = run_scan(sc, client, lambda s: out(paint(s, "info")), phases=phases)
+        if not res.reached:
+            return "tls" if "tls" in res.errors.values() else "net"
+        try:
+            doc, folder = save_scan(sc, client, res, o.out)
+        except rpt.ReportError as exc:
+            return exc
+        show_scan(doc, folder)
+        return "ok"
+
+    return Guided(o.scope, o.out, runner=runner).run()
 
 
 def print_table(doc: dict) -> None:
@@ -256,10 +307,11 @@ def cmd_report(o: Opts) -> int:
 
 
 def cmd_console(o: Opts) -> int:
-    out(paint(f"Apernix {__version__}", "title") + " — " + t("console.welcome"))
+    _line_editing()
+    out(paint(f"APERNIX {__version__}", "brand") + " — " + t("console.welcome"))
     while True:
         try:
-            line = input(paint("apernix> ", "info"))
+            line = input(_console_prompt())
         except EOFError:
             out()
             break
@@ -275,11 +327,15 @@ def cmd_console(o: Opts) -> int:
             continue
         if parts[0] in ("exit", "quit"):
             break
-        if parts[0] == "console":
+        if parts[0] in ("console", "menu"):
             continue
         dispatch(parts)
     out(t("console.bye"))
     return EXIT_OK
+
+
+def _console_prompt() -> str:
+    return prompt_text("apernix> ")
 
 
 COMMANDS = {
@@ -289,6 +345,7 @@ COMMANDS = {
     "scan": (cmd_scan, "cmd.scan"),
     "report": (cmd_report, "cmd.report"),
     "console": (cmd_console, "cmd.console"),
+    "menu": (cmd_menu, "cmd.menu"),
 }
 
 
@@ -323,7 +380,7 @@ def dispatch(argv: list[str]) -> int:
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if not argv:
-        argv = ["console"] if sys.stdin.isatty() else ["help"]
+        argv = ["menu"] if sys.stdin.isatty() else ["help"]
     if argv[0] in ("-h", "--help"):
         argv = ["help"] + argv[1:]
     if argv[0] in ("-V", "--version"):

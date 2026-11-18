@@ -87,6 +87,11 @@ def check_cookies(resp: Response) -> list[Finding]:
     return out
 
 
+def private_ca(url: str, ca_name: str) -> Finding:
+    """Il certificato è valido solo per chi si fida della CA privata indicata nello scope."""
+    return _f("WEB-TLS-PRIVATE", url, 2, 2, [t("ev.private_ca", name=ca_name)])
+
+
 ALL_CHECKS = (check_transport, check_headers, check_disclosure, check_cookies)
 
 

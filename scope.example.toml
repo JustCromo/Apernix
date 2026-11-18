@@ -9,6 +9,9 @@ owner = ""
 [[target]]
 url = "http://127.0.0.1:8000/"
 name = "La mia web application"
+# Solo per HTTPS con una CA interna (es. Caddy con "tls internal"): file PEM della CA,
+# percorso relativo alla cartella di questo file. Apernix si fida solo di quella CA.
+# ca_file = "racoonix-ca.crt"
 
 [network]
 # Porte che nmap controlla sugli host dei bersagli:

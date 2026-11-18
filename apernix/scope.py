@@ -41,6 +41,7 @@ class Target:
     port: int
     path: str         # prefisso di percorso autorizzato, finisce con /
     name: str
+    ca_file: str = ""  # CA privata di cui fidarsi per questo bersaglio (es. quella di Caddy)
 
 
 def _bad(text: str) -> bool:
@@ -56,6 +57,14 @@ def valid_host(host: str) -> bool:
         return True
     except ValueError:
         return bool(_HOSTNAME.match(host))
+
+
+_NAME_OK = re.compile(r"[^A-Za-z0-9 _.\-]")
+
+
+def clean_name(name: str) -> str:
+    """Nome leggibile del bersaglio: solo lettere, numeri, spazio e . _ - (max 64)."""
+    return _NAME_OK.sub("", name)[:64].strip()
 
 
 def valid_port_spec(spec: object) -> bool:
@@ -111,26 +120,30 @@ class Scope:
 
     def allows(self, url: str) -> bool:
         """True solo se `url` cade dentro uno dei bersagli autorizzati."""
+        return self.target_for(url) is not None
+
+    def target_for(self, url: str) -> "Target | None":
+        """Il bersaglio autorizzato a cui appartiene `url`, oppure None."""
         if not isinstance(url, str) or len(url) > MAX_URL_LEN or _bad(url):
-            return False
+            return None
         try:
             parts = urlsplit(url)
             scheme = parts.scheme.lower()
             host = (parts.hostname or "").lower().rstrip(".")
             port = parts.port or (443 if scheme == "https" else 80)
         except ValueError:
-            return False
+            return None
         if parts.username is not None or parts.password is not None:
-            return False
+            return None
         path = parts.path or "/"
         if ".." in path.split("/"):
-            return False
+            return None
         for tg in self.targets:
             if (scheme, host, port) != (tg.scheme, tg.host, tg.port):
                 continue
             if (path if path.endswith("/") else path + "/").startswith(tg.path):
-                return True
-        return False
+                return tg
+        return None
 
 
 def _limit(limits: dict, name: str):
@@ -142,6 +155,11 @@ def _limit(limits: dict, name: str):
 
 
 def load_scope(path: str) -> Scope:
+    return scope_from_dict(read_scope_doc(path), os.path.dirname(os.path.abspath(path)))
+
+
+def read_scope_doc(path: str) -> dict:
+    """Legge il TOML dello scope con i controlli di sicurezza (file normale, permessi, dimensione)."""
     try:
         fd = os.open(path, os.O_RDONLY)
     except FileNotFoundError as exc:
@@ -165,10 +183,33 @@ def load_scope(path: str) -> Scope:
         doc = tomllib.loads(data.decode("utf-8"))
     except (UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
         raise ScopeError("err.scope_invalid", reason_key="scope.reason.not_toml") from exc
-    return scope_from_dict(doc)
+    return doc
 
 
-def scope_from_dict(doc: dict) -> Scope:
+MAX_CA_BYTES = 1024 * 1024
+
+
+def _ca_path(raw: object, base_dir: str) -> str:
+    """Percorso della CA privata: file normale, leggibile, piccolo, in formato PEM."""
+    if raw in (None, ""):
+        return ""
+    if not isinstance(raw, str) or len(raw) > 4096 or "\x00" in raw:
+        raise ValueError("ca_file")
+    path = os.path.normpath(os.path.join(base_dir, os.path.expanduser(raw)))
+    try:
+        st = os.stat(path)
+        if not stat.S_ISREG(st.st_mode) or st.st_size > MAX_CA_BYTES:
+            raise ValueError("ca_file")
+        with open(path, "rb") as fh:
+            head = fh.read(MAX_CA_BYTES)
+    except OSError as exc:
+        raise ValueError("ca_file") from exc
+    if b"-----BEGIN CERTIFICATE-----" not in head:
+        raise ValueError("ca_file")
+    return path
+
+
+def scope_from_dict(doc: dict, base_dir: str = ".") -> Scope:
     auth = doc.get("authorization")
     if not isinstance(auth, dict) or auth.get("confirmed") is not True:
         raise ScopeError("err.scope_not_confirmed")
@@ -189,7 +230,11 @@ def scope_from_dict(doc: dict) -> Scope:
             raise ScopeError("err.scope_invalid", reason_key="scope.reason.bad_url", url=shown) from exc
         name = item.get("name", "")
         name = name if isinstance(name, str) else ""
-        targets.append(Target(tg.url, tg.scheme, tg.host, tg.port, tg.path, name[:64]))
+        try:
+            ca = _ca_path(item.get("ca_file"), base_dir)
+        except ValueError as exc:
+            raise ScopeError("err.scope_invalid", reason_key="scope.reason.bad_ca") from exc
+        targets.append(Target(tg.url, tg.scheme, tg.host, tg.port, tg.path, clean_name(name), ca))
     limits = doc.get("limits", {})
     if not isinstance(limits, dict):
         limits = {}

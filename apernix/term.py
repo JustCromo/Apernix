@@ -6,6 +6,8 @@ import os
 import re
 import sys
 
+from apernix.palette import DARK, TERM_ROLES, rgb
+
 # Caratteri di controllo C0/C1 (escluso \n e \t) e DEL: bloccano le sequenze di escape
 # che un server malevolo potrebbe mettere in header o pagine per manomettere il terminale.
 _CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
@@ -23,15 +25,8 @@ def clean(text: object, limit: int = 300) -> str:
     return s
 
 
-_ROLES = {
-    "ok": "32",
-    "info": "36",
-    "warn": "33",
-    "alert": "1;31",
-    "critical": "1;37;41",
-    "dim": "2",
-    "title": "1",
-}
+def truecolor() -> bool:
+    return os.environ.get("COLORTERM", "").lower() in ("truecolor", "24bit")
 
 
 def use_color(stream=None) -> bool:
@@ -50,9 +45,18 @@ def use_unicode(stream=None) -> bool:
 
 
 def paint(text: str, role: str, stream=None) -> str:
-    if not use_color(stream) or role not in _ROLES:
+    """Colora `text` con un ruolo della palette (24 bit se il terminale lo supporta, sennò 16 colori)."""
+    if not use_color(stream) or role not in TERM_ROLES:
         return text
-    return f"\x1b[{_ROLES[role]}m{text}\x1b[0m"
+    key, ansi16, bold, filled = TERM_ROLES[role]
+    if truecolor():
+        r, g, b = rgb(DARK[key])
+        code = f"48;2;{r};{g};{b};38;2;255;255;255" if filled else f"38;2;{r};{g};{b}"
+        if bold:
+            code = "1;" + code
+    else:
+        code = ansi16 if not bold or ansi16.startswith("1") else "1;" + ansi16
+    return f"\x1b[{code}m{text}\x1b[0m"
 
 
 def symbol(name: str, stream=None) -> str:
@@ -63,4 +67,4 @@ def symbol(name: str, stream=None) -> str:
 
 
 def level_role(level: str) -> str:
-    return {"low": "dim", "medium": "warn", "high": "alert", "critical": "critical"}.get(level, "info")
+    return {"low": "dim", "medium": "warn", "high": "high", "critical": "critical"}.get(level, "info")

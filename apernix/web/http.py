@@ -71,10 +71,12 @@ class SafeClient:
         for _ in range(MAX_REDIRECTS + 1):
             if not self.scope.allows(current):
                 raise OutOfScope(current)
+            target = self.scope.target_for(current)
             self._wait_turn()
             resp = self.session.request(
                 method, current, allow_redirects=False, stream=True,
-                timeout=(min(5.0, self.scope.timeout), self.scope.timeout), **kwargs,
+                timeout=(min(5.0, self.scope.timeout), self.scope.timeout),
+                verify=(target.ca_file if target and target.ca_file else True), **kwargs,
             )
             try:
                 body, truncated = _read_limited(resp)

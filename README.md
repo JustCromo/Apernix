@@ -5,7 +5,7 @@
 Apernix fa parte della suite Nemirix, insieme a Vulpnix, Erinix e Strinix.
 Il nome viene dal latino *aper*, cinghiale.
 
-> Stato: in sviluppo (v0.2.0): analisi esterna (controlli web, fingerprint, nmap, nuclei).
+> Stato: in sviluppo (v0.3.0): analisi esterna (controlli web, fingerprint, nmap, nuclei) e console guidata.
 > Il README completo arriva con la v1.0.0.
 
 ## Dipendenze esterne (consigliate)
@@ -26,14 +26,36 @@ python -m venv .venv
 .venv/bin/pip install -e .
 ```
 
-## Uso rapido
+## Uso rapido: console guidata
 
 ```bash
-cp scope.example.toml scope.toml
-chmod 600 scope.toml
-# modifica scope.toml: URL del bersaglio e confirmed = true
-.venv/bin/apernix scope
-.venv/bin/apernix scan
+.venv/bin/apernix
+```
+
+Senza argomenti si apre la console guidata: aggiungi il bersaglio (URL, nome, eventuale CA,
+porte da controllare e conferma dell'autorizzazione), scegli le fasi da eseguire e avvia.
+Lo scope viene scritto in `scope.toml` con permessi 600.
+
+## Uso da riga di comando
+
+```bash
+.venv/bin/apernix scope                       # controlla lo scope
+.venv/bin/apernix scan                        # tutte le fasi
+.venv/bin/apernix scan --only web,nmap        # solo alcune fasi (web, nuclei, nmap)
+.venv/bin/apernix scan --json                 # uscita JSON stabile
+.venv/bin/apernix console                     # console classica a comandi
+```
+
+In alternativa alla console guidata puoi copiare `scope.example.toml` in `scope.toml`,
+modificarlo e dargli `chmod 600`.
+
+### HTTPS con CA interna (es. Caddy)
+
+Se il sito usa un certificato della CA interna di Caddy, esporta la CA dal container e indicala
+come `ca_file` (dalla console guidata o nello scope). Esempio:
+
+```bash
+docker cp NOME-CONTAINER-CADDY:/data/caddy/pki/authorities/local/root.crt ./caddy-ca.crt
 ```
 
 Per un controllo veloce senza nmap e nuclei: `apernix scan --quick`.

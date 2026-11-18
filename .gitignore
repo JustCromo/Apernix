@@ -6,3 +6,5 @@ build/
 dist/
 apernix-reports/
 scope.toml
+*.crt
+*.pem
