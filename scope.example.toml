@@ -1,0 +1,16 @@
+# Scope di Apernix: SOLO i bersagli che hai il permesso di analizzare.
+# Copia questo file in scope.toml (che git ignora) e poi: chmod 600 scope.toml
+
+[authorization]
+# Metti true solo se il proprietario della web application ti ha autorizzato.
+confirmed = false
+owner = ""
+
+[[target]]
+url = "http://127.0.0.1:8000/"
+name = "La mia web application"
+
+[limits]
+rate = 5             # richieste al secondo (0.1 - 50)
+max_requests = 300   # tetto di richieste per analisi (1 - 10000)
+timeout = 10         # secondi di attesa per risposta (1 - 120)
