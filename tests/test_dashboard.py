@@ -114,14 +114,51 @@ class TestView(unittest.TestCase):
         for w, h in ((MIN_W, MIN_H), (300, 80)):
             self.render(s, w, h)
 
-    def test_modal(self):
+    def test_guide_is_full_page(self):
         s = DashState()
         c = Controller("/nonexistent/scope.toml", "/tmp", spawn=lambda fn: fn(), finder=lambda: [])
         c.state = s
         c.handle_key("?")
-        self.assertIn("Guida", self.render(s))
-        c.handle_key("ENTER")
-        self.assertIsNone(s.modal)
+        self.assertIsNotNone(s.detail)
+        self.assertIn("Navigazione", self.render(s))
+        c.handle_key("q")                        # q in un dettaglio torna indietro, non esce
+        self.assertIsNone(s.detail)
+        self.assertFalse(c.quit)
+
+    def test_every_panel_zoomed_and_detail(self):
+        from apernix.dashboard.app import finding_detail, phase_detail
+        s = DashState()
+        s.reset_run("http://x/", ("web", "nuclei", "nmap"))
+        s.apply(Event("finding", {"finding": finding()}))
+        s.apply(Event("services", {"host": "h", "items": ["22/tcp ssh"]}))
+        for z in range(5):
+            s.zoom = z
+            out = self.render(s)
+            self.assertIn(f"{z + 1} ", out)
+        s.zoom = None
+        s.detail = finding_detail(s.findings[0])
+        self.assertIn("Come risolvere", self.render(s))
+        s.detail = phase_detail(s, "nuclei")
+        self.assertIn("ProjectDiscovery", self.render(s))
+
+    def test_tabs_and_footer_are_contextual(self):
+        from apernix.dashboard.view import footer_keys
+        s = DashState()
+        self.assertIn("1 Bersagli", self.render(s))
+        self.assertIn("analizza", dict(footer_keys(s)).values())
+        s.focus = 3
+        self.assertIn("dettagli", dict(footer_keys(s)).values())
+        s.running = True
+        self.assertEqual(footer_keys(s)[0][0], "x")
+
+    def test_http_segments(self):
+        from apernix.dashboard.state import http_segments
+        segs = http_segments("GET /.git/HEAD → 404")
+        self.assertEqual([r for _, r in segs], ["accent", "text", "faint", "muted"])
+        self.assertEqual(http_segments("GET / → 200")[-1][1], "ok")
+        self.assertEqual(http_segments("GET / → 500")[-1][1], "warn")
+        self.assertEqual(http_segments("GET / → nessuna risposta")[-1][1], "alert")
+        self.assertEqual(http_segments("testo normale"), [("testo normale", "text")])
 
 
 class TestController(unittest.TestCase):
@@ -235,10 +272,64 @@ class TestController(unittest.TestCase):
             c = self.ctrl(d)
             for i in range(3):
                 c.state.findings.append(finding(title=f"P{i}"))
-            c.handle_key("4")
+            c.handle_key("4")                     # ingrandisce i Problemi e li mette a fuoco
+            self.assertEqual((c.state.zoom, c.state.focus), (3, 3))
             c.handle_key("DOWN")
             c.handle_key("ENTER")
-            self.assertEqual(c.state.modal.title, "P1")
+            self.assertEqual(c.state.detail.title, "P1")
+            c.handle_key("DOWN")
+            c.handle_key("ESC")
+            self.assertIsNone(c.state.detail)
+            c.handle_key("4")                     # stesso numero: torna alla vista d'insieme
+            self.assertIsNone(c.state.zoom)
+            c.handle_key("2")
+            c.handle_key("ESC")
+            self.assertIsNone(c.state.zoom)
+            c.handle_key("q")                     # q senza zoom e senza analisi: esce
+            self.assertTrue(c.quit)
+
+    def test_tab_cycles_all_panels(self):
+        with tmpdir() as d:
+            c = self.ctrl(d)
+            seen = []
+            for _ in range(5):
+                c.handle_key("TAB")
+                seen.append(c.state.focus)
+            self.assertEqual(sorted(seen), [0, 1, 2, 3, 4])
+            c.handle_key("BTAB")
+            self.assertEqual(c.state.focus, 4)
+
+    def test_live_scroll_and_follow(self):
+        with tmpdir() as d:
+            c = self.ctrl(d)
+            for i in range(50):
+                c.state.log(f"riga {i}")
+            c.state.focus = 1
+            c.handle_key("UP")
+            c.handle_key("UP")
+            self.assertEqual(c.state.live_scroll, 2)
+            c.state.log("nuova")                   # chi sta leggendo non viene spostato
+            self.assertEqual(c.state.live_scroll, 3)
+            c.handle_key("END")
+            self.assertEqual(c.state.live_scroll, 0)
+
+    def test_focus_moves_intelligently(self):
+        with tmpdir() as d, LocalServer({"/": (200, [], b"ok")}) as srv:
+            add_target(os.path.join(d, "scope.toml"), srv.base + "/", "lab", ports="none")
+            c = self.ctrl(d)
+            c.state.profile = 0
+            seen = []
+            orig = c.state.reset_run
+
+            def spy(url, phases):
+                orig(url, phases)
+                seen.append(c.state.focus)
+            c.state.reset_run = spy
+            c.handle_key("ENTER")
+            c.pump()
+            self.assertEqual(seen, [1])                 # durante l'analisi: Live
+            self.assertEqual(c.state.focus, 3)          # alla fine: Problemi, il più grave selezionato
+            self.assertEqual(c.state.finding_sel, 0)
 
     def test_broken_scope_does_not_crash(self):
         with tmpdir() as d:

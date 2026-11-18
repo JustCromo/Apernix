@@ -12,13 +12,25 @@ import dataclasses
 import os
 import queue
 import threading
-import time
 
 from apernix import discover as disc
 from apernix import report as rpt
 from apernix import tlsinfo
-from apernix.dashboard.state import DashState, Modal, TargetRow
-from apernix.engine import Event, run_scan
+from apernix.dashboard.state import (
+    LEVEL_ROLE,
+    P_FINDINGS,
+    P_LIVE,
+    P_PHASES,
+    P_SURFACE,
+    P_TARGETS,
+    PANELS,
+    DashState,
+    Detail,
+    Modal,
+    TargetRow,
+)
+from apernix.dashboard.view import Canvas
+from apernix.engine import FLOW, Event, run_scan
 from apernix.i18n import t
 from apernix.scope import ScopeError, load_scope, parse_target_url
 from apernix.scope_write import add_target
@@ -31,6 +43,38 @@ PROFILES = (("web",), ("web", "nuclei", "nmap"))
 def _private(host: str) -> bool:
     from apernix.guided import is_private
     return is_private(host)
+
+
+def finding_detail(f) -> Detail:
+    role = LEVEL_ROLE[f.level]
+    lines = [
+        [(f"{f.risk} ", role), (t("level." + f.level), role), (f"   {f.impact} × {f.probability}", "muted"),
+         (f"  ({t('table.impact').lower()} × {t('table.probability').lower()})", "faint")],
+        ("", "text"),
+        [(f"{t('table.element')}: ", "accent"), (f.element, "text")],
+        [(f"{t('table.pt')}: ", "accent"), (t("pt." + f.pt), "text")],
+        [(f"{t('table.source')}: ", "accent"), (f.source, "text"), (f"  {f.check}", "muted")],
+        ("", "text"), [(t("table.evidence"), "accent")],
+        *[(f"  • {e}", "text") for e in f.evidence],
+        ("", "text"), [(t("table.remediation"), "accent")], (f"  {f.remediation}", "text"),
+    ]
+    return Detail(f.title, lines)
+
+
+def phase_detail(s, pid: str) -> Detail:
+    ph = s.phases[pid]
+    state = t(f"dash.state.{ph.state}")
+    pct = int((1.0 if ph.state == "done" else ph.frac) * 100)
+    lines = [[(f"{t('dash.state')}: ", "accent"), (state, "text")],
+             [(f"{t('dash.progress')}: ", "accent"), (f"{pct}%", "text"),
+              (f"  {ph.label}" if ph.label else "", "muted")]]
+    if ph.note:
+        lines.append([(f"{t('dash.note')}: ", "accent"), (ph.note, "text")])
+    lines += [("", "text"), (t(f"dash.phase.{pid}.about"), "text")]
+    src = {"web": "apernix-web", "nuclei": "nuclei", "nmap": "nmap"}.get(pid)
+    if src and src in s.sources:
+        lines += [("", "text"), [(f"{t('report.sources')}: ", "accent"), (t("source." + s.sources[src]), "text")]]
+    return Detail(t(f"dash.phase.{pid}"), lines)
 
 
 class Controller:
@@ -109,26 +153,28 @@ class Controller:
 
     def _finish(self, d: dict) -> None:
         s = self.state
-        s.running, s.finished = False, time.monotonic()
+        s.finish()
         res = d["result"]
+        s.sources = dict(res.sources)
         if d.get("folder"):
             s.report = clean(d["folder"], 200)
         if res.cancelled:
-            s.status = t("dash.status.cancelled")
+            s.status, s.status_role = t("dash.status.cancelled"), "warn"
             for ph in s.phases.values():
                 if ph.state in ("run", "wait"):
                     ph.state, ph.note = "fail", t("dash.phase.stopped")
         elif not res.reached:
             outcome = next(iter(res.errors.values()), "net")
             s.status = t("g.tls") if outcome == "tls" else t("g.unreachable")
+            s.status_role = "alert"
             if outcome == "tls":
                 tg = d["target"]
                 self.ask_trust(tg.url, changed=bool(tg.ca_file), then=lambda ca: self._retrust(tg.url, ca))
         else:
-            s.status = t("dash.status.done", n=len(res.findings))
-        s.log(s.status)
+            s.status, s.status_role = t("dash.status.done", n=len(res.findings)), "ok"
+        s.log([(s.status, s.status_role)])
         if d.get("error"):
-            s.status = t(d["error"])
+            s.status, s.status_role = t(d["error"]), "alert"
 
     def _retrust(self, url: str, ca: str) -> None:
         add_target(self.scope_path, url, ca_file=ca)
@@ -144,7 +190,6 @@ class Controller:
         one = dataclasses.replace(sc, targets=(tg,))
         self.cancel = threading.Event()
         self.state.reset_run(url, phases)
-        self.state.status = ""
         out_dir, cancel, events = self.out_dir, self.cancel, self.events
 
         def work():
@@ -231,26 +276,47 @@ class Controller:
         if s.modal:
             self._modal_key(key)
             return
+        if s.detail:
+            self._detail_key(key)
+            return
         if key in ("q", "Q"):
-            if s.running:
+            if s.zoom is not None:
+                s.zoom = None
+            elif s.running:
                 s.modal = Modal("confirm", t("dash.modal.quit"), [t("dash.quit.question")], on_yes=self.shutdown)
             else:
                 self.quit = True
+        elif key == "ESC":
+            s.zoom = None
         elif key == "TAB":
-            s.focus = (s.focus + 1) % 3
-        elif key in ("1", "2", "4"):
-            s.focus = {"1": 0, "2": 1, "4": 2}[key]
+            s.focus = (s.focus + 1) % len(PANELS)
+            if s.zoom is not None:
+                s.zoom = s.focus
+        elif key == "BTAB":
+            s.focus = (s.focus - 1) % len(PANELS)
+            if s.zoom is not None:
+                s.zoom = s.focus
+        elif key in ("1", "2", "3", "4", "5"):
+            idx = int(key) - 1
+            s.zoom = None if s.zoom == idx else idx       # stesso numero: torna alla vista d'insieme
+            s.focus = idx
         elif key in ("UP", "k"):
             self._move(-1)
         elif key in ("DOWN", "j"):
             self._move(1)
+        elif key == "PGUP":
+            self._move(-10)
+        elif key == "PGDN":
+            self._move(10)
+        elif key in ("HOME", "g"):
+            self._move(-10**6)
+        elif key in ("END", "G"):
+            self._move(10**6)
         elif key == "ENTER":
             self._enter()
-        elif key in ("s",) and not s.running and s.targets:
-            self._enter(start=True)
         elif key == "x" and s.running:
             self.cancel.set()
-            s.status = t("dash.stopping")
+            s.status, s.status_role = t("dash.stopping"), "warn"
         elif key == "a" and not s.running:
             s.modal = Modal("input", t("dash.modal.url"), [t("g.url")], on_yes=lambda text: self.new_target(text))
         elif key == "p" and not s.running:
@@ -258,37 +324,66 @@ class Controller:
         elif key == "d" and not s.running:
             self.start_discovery()
         elif key == "r":
-            self.info(t("dash.modal.report"), [s.report or t("dash.report.none")])
+            self.show_report()
         elif key == "?":
-            self.info(t("dash.modal.guide"), t("dash.guide").split("|"))
+            s.detail = Detail(t("dash.modal.guide"), [(line, "text") for line in t("dash.guide").split("|")])
+
+    def _detail_key(self, key: str) -> None:
+        d = self.state.detail
+        if key in ("ESC", "q", "Q", "ENTER", "BACKSPACE"):
+            self.state.detail = None
+        elif key in ("UP", "k"):
+            d.scroll = max(0, d.scroll - 1)
+        elif key in ("DOWN", "j"):
+            d.scroll += 1
+        elif key == "PGUP":
+            d.scroll = max(0, d.scroll - 10)
+        elif key in ("PGDN", " "):
+            d.scroll += 10
+        elif key in ("HOME", "g"):
+            d.scroll = 0
 
     def _move(self, step: int) -> None:
         s = self.state
-        if s.focus == 0 and s.targets:
+        panel = s.focus
+        if panel == P_TARGETS and s.targets:
             s.selected = max(0, min(len(s.targets) - 1, s.selected + step))
-        elif s.focus == 2 and s.findings:
+        elif panel == P_FINDINGS and s.findings:
             s.finding_sel = max(0, min(len(s.findings) - 1, s.finding_sel + step))
-        elif s.focus == 1:
-            s.live_scroll = max(0, min(len(s.live) - 1, s.live_scroll - step))
+        elif panel == P_PHASES:
+            s.phase_sel = max(0, min(len(FLOW) - 1, s.phase_sel + step))
+        elif panel == P_LIVE:
+            # su = indietro nel tempo; End (passo enorme in giù) torna a seguire gli ultimi passi
+            s.live_scroll = max(0, min(len(s.live) - 1, s.live_scroll - step)) if s.live else 0
 
-    def _enter(self, start: bool = False) -> None:
+    def _enter(self) -> None:
         s = self.state
-        if s.focus == 2 and s.findings and not start:
-            f = s.findings[s.finding_sel]
-            lines = [f"{t('table.element')}: {f.element}",
-                     f"{t('table.risk')}: {f.impact} × {f.probability} = {f.risk} ({t('level.' + f.level)})",
-                     f"{t('table.pt')}: {t('pt.' + f.pt)}", f"{t('table.source')}: {f.source} ({f.check})", "",
-                     f"{t('table.evidence')}:", *[f"  • {e}" for e in f.evidence], "",
-                     f"{t('table.remediation')}: {f.remediation}"]
-            self.info(f.title, lines)
+        panel = s.focus
+        if panel == P_FINDINGS and s.findings:
+            s.detail = finding_detail(s.findings[s.finding_sel])
+        elif panel == P_PHASES:
+            s.detail = phase_detail(s, FLOW[s.phase_sel])
+        elif panel == P_SURFACE:
+            from apernix.dashboard.view import surface_lines
+            s.detail = Detail(t("dash.panel.surface"), surface_lines(s))
+        elif panel == P_LIVE:
+            s.live_scroll = 0
+        elif panel == P_TARGETS and not s.running and s.targets:
+            row = s.targets[s.selected]
+            if row.authorized:
+                self.start_scan(row.url)
+            else:
+                self.new_target(row.url, row.name)
+
+    def show_report(self) -> None:
+        s = self.state
+        if not s.report:
+            self.info(t("dash.modal.report"), [t("dash.report.none")])
             return
-        if s.running or not s.targets:
-            return
-        row = s.targets[s.selected]
-        if row.authorized:
-            self.start_scan(row.url)
-        else:
-            self.new_target(row.url, row.name)
+        lines = [[(f"{t('dash.report')}: ", "accent"), (s.report, "ok")], ("", "text"),
+                 [("report.md   ", "accent"), (t("dash.report.md"), "text")],
+                 [("report.json ", "accent"), (t("dash.report.json"), "text")]]
+        s.detail = Detail(t("dash.modal.report"), lines)
 
     def _modal_key(self, key: str) -> None:
         m = self.state.modal
@@ -331,6 +426,7 @@ def run(scope_path: str, out_dir: str) -> int:
     from apernix.dashboard.view import Glyphs, draw
     from apernix.term import use_color, use_unicode
     locale.setlocale(locale.LC_ALL, "")
+    os.environ.setdefault("ESCDELAY", "25")      # Esc risponde subito (di default curses aspetta 1 secondo)
     # Caratteri speciali solo se il terminale parla davvero UTF-8 (con LANG=C si passa all'ASCII).
     utf8 = use_unicode() and locale.nl_langinfo(locale.CODESET).upper().replace("-", "") == "UTF8"
     glyphs = Glyphs(utf8)
@@ -376,12 +472,21 @@ def run(scope_path: str, out_dir: str) -> int:
         return curses.wrapper(main)
     except curses.error:
         return 2
+    except Exception:
+        # Errore imprevisto: il terminale è già stato ripristinato da curses.wrapper.
+        if os.environ.get("APERNIX_DEBUG"):
+            raise
+        import sys
+        print(t("err.dashboard_crash"), file=sys.stderr)
+        print("  " + t("err.dashboard_crash.hint"), file=sys.stderr)
+        return 2
 
 
 def _key_name(ch, curses) -> str:
     if isinstance(ch, int):
         return {curses.KEY_UP: "UP", curses.KEY_DOWN: "DOWN", curses.KEY_ENTER: "ENTER",
-                curses.KEY_BACKSPACE: "BACKSPACE", curses.KEY_BTAB: "TAB"}.get(ch, "")
+                curses.KEY_BACKSPACE: "BACKSPACE", curses.KEY_BTAB: "BTAB", curses.KEY_PPAGE: "PGUP",
+                curses.KEY_NPAGE: "PGDN", curses.KEY_HOME: "HOME", curses.KEY_END: "END"}.get(ch, "")
     return KEYMAP.get(ch, ch)
 
 
@@ -407,6 +512,7 @@ def _init_colors(curses) -> dict:
     rich = curses.COLORS >= 256
     spec = {
         "brand": ("primary", curses.COLOR_RED, curses.A_BOLD), "title": ("text", curses.COLOR_WHITE, curses.A_BOLD),
+        "accent": ("accent", curses.COLOR_MAGENTA, 0), "faint": ("faint", curses.COLOR_BLACK, curses.A_BOLD),
         "text": ("text", curses.COLOR_WHITE, 0), "muted": ("muted", curses.COLOR_WHITE, curses.A_DIM),
         "border": ("muted", curses.COLOR_WHITE, curses.A_DIM), "dim": ("low", curses.COLOR_WHITE, curses.A_DIM),
         "ok": ("ok", curses.COLOR_GREEN, 0), "warn": ("medium", curses.COLOR_YELLOW, 0),
@@ -438,12 +544,9 @@ def to_ascii(text: str) -> str:
     return "".join(out)
 
 
-class _CursesCanvas:
+class _CursesCanvas(Canvas):
     def __init__(self, win, w, h, roles, curses, ascii_only=False) -> None:
-        from apernix.dashboard.view import Canvas
-        self._canvas = Canvas(w, h)
-        self._canvas.put = self.put
-        self.w, self.h = w, h
+        super().__init__(w, h)
         self.win, self.roles, self.curses = win, roles, curses
         self.ascii_only = ascii_only
 
@@ -454,6 +557,3 @@ class _CursesCanvas:
             self.win.addstr(y, x, text, self.roles.get(role, 0))
         except self.curses.error:
             pass      # l'ultima cella dello schermo dà sempre errore: si ignora
-
-    def text(self, *a, **k):
-        return self._canvas.text(*a, **k)

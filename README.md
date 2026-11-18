@@ -5,7 +5,7 @@
 Apernix fa parte della suite Nemirix, insieme a Vulpnix, Erinix e Strinix.
 Il nome viene dal latino *aper*, cinghiale.
 
-> Stato: in sviluppo (v0.5.0): analisi esterna (controlli web, fingerprint, nmap, nuclei) e dashboard.
+> Stato: in sviluppo (v0.5.1): analisi esterna (controlli web, fingerprint, nmap, nuclei) e dashboard.
 > Il README completo arriva con la v1.0.0.
 
 ## Dipendenze esterne (consigliate)
@@ -44,9 +44,13 @@ Senza argomenti si apre la **dashboard** a tutto schermo (serve un terminale di 
 | 5 Superficie | tecnologie, servizi in rete e percorso dell'ultimo report |
 | piede | **cosa sta facendo adesso** e i tasti disponibili |
 
-Tasti: ↑↓ scegli, Invio analizza, `a` aggiungi URL, `p` profilo, `d` cerca di nuovo, Tab cambia
-pannello, `x` ferma, `r` report, `?` guida, `q` esci. Per terminali piccoli c'è `apernix menu`,
-la console a numeri con lo stesso flusso.
+Navigazione (come in Erinix): Tab / Maiusc+Tab passa da un pannello all'altro, `1`-`5` ingrandisce
+un pannello (stesso numero o Esc per tornare), ↑↓ PagSu PagGiù scorre, Invio apre il dettaglio a
+pagina intera (Esc o `q` per tornare). Nei Bersagli: Invio analizza, `a` aggiungi URL, `d` cerca di
+nuovo, `p` cambia profilo. Sempre: `x` ferma, `r` report, `?` guida, `q` esci. I tasti utili nel
+pannello attivo sono sempre scritti in basso. Quando parte un'analisi il focus va sul Live (che segue
+gli ultimi passi, finché non scorri in su); quando finisce va sui Problemi, con il più grave già
+selezionato. Per terminali piccoli c'è `apernix menu`, la console a numeri con lo stesso flusso.
 
 La dashboard fa da sola tutto quello che può:
 

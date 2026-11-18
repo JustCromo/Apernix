@@ -5,7 +5,8 @@ __pycache__/
 build/
 dist/
 apernix-reports/
-scope.toml
+scope*.toml
+!scope.example.toml
 *.crt
 *.pem
 .apernix-trust/
