@@ -8,3 +8,4 @@ apernix-reports/
 scope.toml
 *.crt
 *.pem
+.apernix-trust/

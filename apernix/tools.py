@@ -12,6 +12,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import time
 from dataclasses import dataclass
 
 MAX_OUTPUT = 20 * 1024 * 1024
@@ -29,7 +30,7 @@ def which(name: str) -> str | None:
     return shutil.which(name)
 
 
-def run_tool(argv: list[str], out_flag_builder, timeout: float) -> ToolResult:
+def run_tool(argv: list[str], out_flag_builder, timeout: float, tick=None) -> ToolResult:
     """Lancia `argv` aggiungendo gli argomenti per scrivere su file (`out_flag_builder(path)`)."""
     exe = which(argv[0])
     if exe is None:
@@ -41,12 +42,28 @@ def run_tool(argv: list[str], out_flag_builder, timeout: float) -> ToolResult:
         out_path = os.path.join(tmp, "out")
         cmd = [exe, *argv[1:], *out_flag_builder(out_path)]
         try:
-            proc = subprocess.run(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                  stderr=subprocess.DEVNULL, env=env, timeout=timeout, check=False)
-        except subprocess.TimeoutExpired:
-            return ToolResult(False, reason="timeout")
+            proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                    stderr=subprocess.DEVNULL, env=env)
         except OSError:
             return ToolResult(False, reason="failed")
+        start = time.monotonic()
+        try:
+            while True:
+                try:
+                    proc.wait(timeout=1)
+                    break
+                except subprocess.TimeoutExpired:
+                    elapsed = time.monotonic() - start
+                    if elapsed > timeout:
+                        proc.kill()
+                        proc.wait()
+                        return ToolResult(False, reason="timeout")
+                    if tick:
+                        tick(elapsed, timeout)
+        except BaseException:
+            proc.kill()        # anche con Ctrl+C il tool non resta acceso in background
+            proc.wait()
+            raise
         try:
             st = os.lstat(out_path)
         except FileNotFoundError:
@@ -60,3 +77,32 @@ def run_tool(argv: list[str], out_flag_builder, timeout: float) -> ToolResult:
         if len(data) > MAX_OUTPUT:
             return ToolResult(False, reason="too_big")
         return ToolResult(True, data)
+
+
+def run_capture(argv: list[str], timeout: float = 10, max_bytes: int = 1024 * 1024) -> ToolResult:
+    """Come run_tool, ma per comandi che scrivono su stdout (es. docker ps, ss). Uscita limitata."""
+    exe = which(argv[0])
+    if exe is None:
+        return ToolResult(False, reason="missing")
+    env = {k: os.environ[k] for k in SAFE_ENV_KEYS if k in os.environ}
+    try:
+        proc = subprocess.Popen([exe, *argv[1:]], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                stderr=subprocess.DEVNULL, env=env)
+    except OSError:
+        return ToolResult(False, reason="failed")
+    try:
+        data = proc.stdout.read(max_bytes + 1) if proc.stdout else b""
+        too_big = len(data) > max_bytes
+        if too_big:
+            proc.kill()
+        proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+        return ToolResult(False, reason="timeout")
+    finally:
+        if proc.stdout:
+            proc.stdout.close()
+    if too_big:
+        return ToolResult(False, reason="too_big")
+    return ToolResult(proc.returncode == 0, data, "" if proc.returncode == 0 else "failed")

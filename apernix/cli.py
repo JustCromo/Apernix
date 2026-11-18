@@ -25,6 +25,7 @@ from apernix.models import Finding
 from apernix.scope import Scope, ScopeError, load_scope
 from apernix.sources import nmap, nuclei
 from apernix.term import clean, level_role, paint, symbol
+from apernix.tools import which
 from apernix.web import active, checks
 from apernix.web.http import BudgetExceeded, OutOfScope, SafeClient
 
@@ -159,8 +160,36 @@ def _step(progress, key: str, **kw) -> None:
     progress(f"  {symbol('arrow')} {t(key, **kw)}")
 
 
+def _mmss(seconds: float) -> str:
+    s = int(seconds)
+    return f"{s // 60}:{s % 60:02d}"
+
+
+class Ticker:
+    """Riga di avanzamento per le fasi lunghe (solo su terminale vero)."""
+
+    def __init__(self, enabled: bool) -> None:
+        self.enabled = enabled and sys.stdout.isatty()
+        self.active = False
+
+    def __call__(self, elapsed: float, limit: float) -> None:
+        if not self.enabled:
+            return
+        self.active = True
+        text = t("scan.wait", elapsed=_mmss(elapsed), limit=_mmss(limit))
+        sys.stdout.write("\r    " + paint(f"{symbol('dot')} {text}", "dim") + "   ")
+        sys.stdout.flush()
+
+    def done(self) -> None:
+        if self.active:
+            sys.stdout.write("\r\x1b[2K")
+            sys.stdout.flush()
+            self.active = False
+
+
 def run_scan(sc: Scope, client: SafeClient, progress=lambda s: None, quick: bool = False,
-             phases: tuple[str, ...] = PHASES) -> ScanResult:
+             phases: tuple[str, ...] = PHASES, ticker: Ticker | None = None) -> ScanResult:
+    ticker = ticker or Ticker(False)
     res = ScanResult()
     if quick:
         phases = ("web",)
@@ -187,8 +216,14 @@ def run_scan(sc: Scope, client: SafeClient, progress=lambda s: None, quick: bool
         if "nuclei" not in phases:
             res.source("nuclei", "skipped")
             continue
+        if which("nuclei") is None:
+            res.source("nuclei", "missing")
+            continue
         _step(progress, "scan.phase.nuclei")
-        out = nuclei.scan(tg.url, sc.rate, sc.timeout)
+        try:
+            out = nuclei.scan(tg.url, sc.rate, sc.timeout, tick=ticker)
+        finally:
+            ticker.done()
         if out.ok:
             found, tech = nuclei.parse(out.output)
             res.findings.extend(found)
@@ -203,7 +238,10 @@ def run_scan(sc: Scope, client: SafeClient, progress=lambda s: None, quick: bool
             hosts.setdefault(tg.host, []).append(tg.port)
     for host, web_ports in hosts.items():
         _step(progress, "scan.phase.nmap", host=host)
-        out = nmap.scan(host, sc.ports)
+        try:
+            out = nmap.scan(host, sc.ports, tick=ticker)
+        finally:
+            ticker.done()
         if not out.ok:
             res.source("nmap", out.reason)
             continue
@@ -222,7 +260,7 @@ def cmd_scan(o: Opts) -> int:
     sc = _scope(o)
     client = SafeClient(sc)
     progress = (lambda s: None) if o.json else (lambda s: out(paint(s, "info")))
-    res = run_scan(sc, client, progress, quick=o.quick, phases=o.only)
+    res = run_scan(sc, client, progress, quick=o.quick, phases=o.only, ticker=Ticker(not o.json))
     if not res.reached:
         if "tls" in res.errors.values():
             raise CliError("err.tls")
@@ -267,7 +305,7 @@ def _line_editing() -> None:
 def cmd_menu(o: Opts) -> int:
     _line_editing()
     def runner(sc: Scope, client: SafeClient, phases: tuple[str, ...]):
-        res = run_scan(sc, client, lambda s: out(paint(s, "info")), phases=phases)
+        res = run_scan(sc, client, lambda s: out(paint(s, "info")), phases=phases, ticker=Ticker(True))
         if not res.reached:
             return "tls" if "tls" in res.errors.values() else "net"
         try:

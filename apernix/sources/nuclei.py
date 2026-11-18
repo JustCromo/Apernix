@@ -19,14 +19,16 @@ def build_argv(url: str, rate: float, timeout: float) -> list[str]:
         "nuclei", "-u", url, "-jsonl", "-silent", "-nc",
         "-duc",                                  # niente controllo aggiornamenti durante la scansione
         "-ni",                                   # niente interactsh: nessun dato verso server esterni
+        "-as",                                   # scansione automatica: prima riconosce le tecnologie,
+                                                 # poi usa solo i template che le riguardano
         "-etags", "dos,fuzz,intrusive",          # esclude template distruttivi o aggressivi
         "-rl", str(max(1, int(rate))),
         "-timeout", str(max(1, int(timeout))),
     ]
 
 
-def scan(url: str, rate: float, timeout: float, max_time: float = 1800) -> ToolResult:
-    return run_tool(build_argv(url, rate, timeout), lambda path: ["-o", path], max_time)
+def scan(url: str, rate: float, timeout: float, max_time: float = 900, tick=None) -> ToolResult:
+    return run_tool(build_argv(url, rate, timeout), lambda path: ["-o", path], max_time, tick)
 
 
 def _s(value: object, limit: int = 200) -> str:

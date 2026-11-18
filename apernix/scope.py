@@ -9,6 +9,7 @@ from __future__ import annotations
 import ipaddress
 import os
 import re
+import ssl
 import stat
 import tomllib
 from dataclasses import dataclass
@@ -206,6 +207,10 @@ def _ca_path(raw: object, base_dir: str) -> str:
         raise ValueError("ca_file") from exc
     if b"-----BEGIN CERTIFICATE-----" not in head:
         raise ValueError("ca_file")
+    try:
+        ssl.create_default_context(cafile=path)     # deve essere un certificato vero, non solo sembrarlo
+    except (ssl.SSLError, ValueError, OSError) as exc:
+        raise ValueError("ca_file") from exc
     return path
 
 

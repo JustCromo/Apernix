@@ -33,10 +33,10 @@ def build_argv(host: str, spec: str) -> list[str]:
             *port_args(spec), host]
 
 
-def scan(host: str, spec: str, timeout: float = 1200) -> ToolResult:
+def scan(host: str, spec: str, timeout: float = 1200, tick=None) -> ToolResult:
     # nmap vuole le opzioni prima del bersaglio: -oX va quindi inserito prima dell'host.
     argv = build_argv(host, spec)
-    return run_tool(argv[:-1], lambda path: ["-oX", path, argv[-1]], timeout)
+    return run_tool(argv[:-1], lambda path: ["-oX", path, argv[-1]], timeout, tick)
 
 
 def parse(xml_data: bytes) -> list[dict]:

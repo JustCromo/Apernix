@@ -5,7 +5,7 @@
 Apernix fa parte della suite Nemirix, insieme a Vulpnix, Erinix e Strinix.
 Il nome viene dal latino *aper*, cinghiale.
 
-> Stato: in sviluppo (v0.3.0): analisi esterna (controlli web, fingerprint, nmap, nuclei) e console guidata.
+> Stato: in sviluppo (v0.4.0): analisi esterna (controlli web, fingerprint, nmap, nuclei) e console guidata automatica.
 > Il README completo arriva con la v1.0.0.
 
 ## Dipendenze esterne (consigliate)
@@ -32,9 +32,18 @@ python -m venv .venv
 .venv/bin/apernix
 ```
 
-Senza argomenti si apre la console guidata: aggiungi il bersaglio (URL, nome, eventuale CA,
-porte da controllare e conferma dell'autorizzazione), scegli le fasi da eseguire e avvia.
-Lo scope viene scritto in `scope.toml` con permessi 600.
+Senza argomenti si apre la console guidata, che fa da sola tutto quello che può:
+
+1. **trova le web application su questa macchina** (porte pubblicate da Docker e porte in ascolto,
+   letta con `docker ps` e `ss`) oppure accetta un URL scritto a mano;
+2. se il certificato HTTPS non è pubblico (es. CA interna di Caddy) mostra emittente e impronta
+   SHA-256 e chiede se fidarsi, **come fa SSH**: il certificato accettato viene salvato in
+   `.apernix-trust/` e da lì in poi Apernix si fida solo di quello; se cambia, avvisa;
+3. chiede **sempre** la conferma esplicita dell'autorizzazione;
+4. propone un profilo: *Rapida* (solo web), *Completa* (web + nuclei + nmap) o *Personalizzata*.
+
+Lo scope viene scritto in `scope.toml` con permessi 600. Per i bersagli in rete privata il ritmo
+predefinito è 20 richieste al secondo, per gli altri 5.
 
 ## Uso da riga di comando
 
@@ -51,8 +60,8 @@ modificarlo e dargli `chmod 600`.
 
 ### HTTPS con CA interna (es. Caddy)
 
-Se il sito usa un certificato della CA interna di Caddy, esporta la CA dal container e indicala
-come `ca_file` (dalla console guidata o nello scope). Esempio:
+La console guidata gestisce da sola i certificati non pubblici (vedi sopra). In alternativa puoi
+indicare a mano la CA come `ca_file` nello scope, ad esempio esportandola dal container di Caddy:
 
 ```bash
 docker cp NOME-CONTAINER-CADDY:/data/caddy/pki/authorities/local/root.crt ./caddy-ca.crt

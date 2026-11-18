@@ -1,30 +1,33 @@
-"""Console guidata: si sceglie il bersaglio, si spuntano le fasi, si conferma e si parte.
+"""Console guidata: Apernix fa da solo tutto quello che può, e chiede solo ciò che spetta a te.
 
-Menu a numeri, niente interfaccia a tutto schermo: funziona uguale in locale e via SSH,
-e il terminale resta sempre pulito (Ctrl+C torna indietro, Ctrl+D esce).
+- trova le web application su questa macchina (Docker e porte in ascolto)
+- per i certificati non pubblici mostra emittente e impronta e chiede se fidarsi (come SSH)
+- chiede SEMPRE in modo esplicito la conferma dell'autorizzazione
+- profili pronti (rapida / completa) oppure fasi scelte a mano
+
+Menu a numeri, niente interfaccia a tutto schermo: funziona uguale in locale e via SSH.
+Ctrl+C torna indietro, Ctrl+D esce.
 """
 
 from __future__ import annotations
 
 import dataclasses
+import ipaddress
 import os
 import re
 
-from apernix import __version__
+from apernix import __version__, tlsinfo
+from apernix import discover as disc
 from apernix import report as rpt
 from apernix.i18n import t
-from apernix.scope import Scope, ScopeError, load_scope, valid_port_spec
+from apernix.scope import Scope, ScopeError, load_scope, parse_target_url
 from apernix.scope_write import add_target
 from apernix.term import clean, paint, symbol
 from apernix.tools import which
 from apernix.web.http import SafeClient
 
-
-class Back(Exception):
-    pass
-
-
 _ESC = re.compile(r"(\x1b\[[0-9;]*m)")
+PROFILES = {"1": ("web",), "2": ("web", "nuclei", "nmap")}
 
 
 def prompt_text(text: str) -> str:
@@ -32,14 +35,31 @@ def prompt_text(text: str) -> str:
     return _ESC.sub("\001\\1\002", paint(text, "brand"))
 
 
+def is_private(host: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return host == "localhost" or host.endswith(".local")
+    return ip.is_private or ip.is_loopback
+
+
+class Back(Exception):
+    pass
+
+
 class Guided:
-    def __init__(self, scope_path: str, out_dir: str, ask=input, say=print, runner=None) -> None:
+    def __init__(self, scope_path: str, out_dir: str, ask=input, say=print, runner=None,
+                 finder=disc.discover, tls=tlsinfo, probe=disc.probe) -> None:
         self.scope_path = scope_path
         self.out_dir = out_dir
         self._ask = ask
         self.say = say
-        self.runner = runner      # funzione che esegue l'analisi (iniettata dalla CLI)
+        self.runner = runner      # esegue l'analisi (iniettata dalla CLI)
+        self.finder = finder      # scoperta delle webapp locali (sostituibile nei test)
+        self.tls = tls            # funzioni TLS (sostituibili nei test)
+        self.probe = probe        # lettura del titolo della pagina, per dare un nome al bersaglio
 
+    # ------------------------------------------------------------ utilità
     def ask(self, text: str) -> str:
         try:
             answer = self._ask(prompt_text(f"{text}: "))
@@ -48,10 +68,22 @@ class Guided:
             raise Back() from None
         return answer.strip()[:2048]
 
+    def yes(self, text: str) -> bool:
+        return self.ask(text).lower() in ("si", "sì")
+
     def error(self, msg: str) -> None:
         self.say(paint(f"{symbol('warn')} {msg}", "warn"))
 
-    # ------------------------------------------------------------ flusso principale
+    def ok(self, msg: str) -> None:
+        self.say(paint(f"{symbol('ok')} {msg}", "ok"))
+
+    def scope_error(self, exc: ScopeError) -> str:
+        params = dict(exc.params)
+        if "reason_key" in params:
+            params["reason"] = t(params.pop("reason_key"), **params)
+        return t(exc.code, **params)
+
+    # ------------------------------------------------------------ menu principale
     def run(self) -> int:
         self.say(paint(f"APERNIX {__version__}", "brand") + paint(f"  {t('g.title')}", "dim"))
         while True:
@@ -72,80 +104,146 @@ class Guided:
         try:
             return load_scope(self.scope_path)
         except ScopeError as exc:
-            params = dict(exc.params)
-            if "reason_key" in params:
-                params["reason"] = t(params.pop("reason_key"), **params)
-            self.error(t(exc.code, **params) + " — " + t(exc.code + ".hint"))
+            self.error(self.scope_error(exc) + " — " + t(exc.code + ".hint"))
             return None
 
     def main_menu(self) -> bool:
         sc = self.load()
+        targets = list(sc.targets) if sc else []
         self.say("")
         self.say(paint(t("g.targets"), "title"))
-        targets = list(sc.targets) if sc else []
         if not targets:
             self.say(paint(f"  {t('g.no_targets')}", "dim"))
         for i, tg in enumerate(targets, 1):
             label = f"  ({clean(tg.name, 64)})" if tg.name else ""
             self.say(f"  {i}) {clean(tg.url)}{paint(label, 'dim')}")
-        self.say(f"  a) {t('g.add')}")
+        self.say(f"  n) {t('g.discover')}")
+        self.say(f"  u) {t('g.manual')}")
         self.say(f"  q) {t('g.quit')}")
         choice = self.ask(t("g.choose")).lower()
         if choice in ("q", "0", "esci", "exit"):
             return False
-        if choice == "a":
-            self.add_flow()
-            return True
-        if choice.isdigit() and 1 <= int(choice) <= len(targets):
-            self.scan_flow(sc, targets[int(choice) - 1])
-            return True
-        self.error(t("g.invalid"))
+        if choice == "n":
+            self.discover_flow()
+        elif choice == "u":
+            url = self.ask(t("g.url"))
+            if url:
+                self.add_flow(url, "")
+        elif choice.isdigit() and 1 <= int(choice) <= len(targets):
+            self.scan_flow(targets[int(choice) - 1].url)
+        else:
+            self.error(t("g.invalid"))
         return True
 
-    def add_flow(self) -> None:
-        url = self.ask(t("g.url"))
-        if not url:
-            raise Back()
-        name = self.ask(t("g.name"))
-        ca = self.ask(t("g.ca")) if url.lower().startswith("https://") else ""
-        ports = self.ask(t("g.ports")) or "top1000"
-        if not valid_port_spec(ports):
-            self.error(t("scope.reason.bad_ports"))
+    # ------------------------------------------------------------ nuovo bersaglio
+    def discover_flow(self) -> None:
+        self.say(paint(t("g.searching"), "info"))
+        found = self.finder()
+        if not found:
+            self.error(t("g.none_found"))
             return
-        if self.ask(t("g.authorize", url=clean(url, 200))).lower() not in ("si", "sì"):
+        self.say("")
+        self.say(paint(t("g.found"), "title"))
+        for i, c in enumerate(found, 1):
+            title = f" — {clean(c.title, 60)}" if c.title and c.title != c.name else ""
+            self.say(f"  {i}) {clean(c.name, 60)}{title}")
+            self.say(paint(f"     {clean(c.url)}  [{c.via}]", "dim"))
+        self.say(f"  q) {t('g.back')}")
+        choice = self.ask(t("g.choose")).lower()
+        if choice.isdigit() and 1 <= int(choice) <= len(found):
+            c = found[int(choice) - 1]
+            self.add_flow(c.url, c.name)
+        elif choice != "q":
+            self.error(t("g.invalid"))
+
+    def trust_flow(self, url: str, changed: bool = False) -> str | None:
+        """Certificato non pubblico: mostralo e chiedi se fidarsi. Restituisce il ca_file o None."""
+        tg = parse_target_url(url)
+        try:
+            if not changed and self.tls.publicly_trusted(tg.host, tg.port):
+                return ""
+            chain = self.tls.fetch_chain(tg.host, tg.port)
+        except OSError:
+            self.error(t("g.unreachable"))
+            return None
+        if not chain:
+            self.error(t("g.tls"))
+            return None
+        leaf, top = self.tls.describe(chain[0]), self.tls.describe(chain[-1])
+        self.say("")
+        self.say(paint(t("g.cert_changed" if changed else "g.cert_private"), "alert" if changed else "warn"))
+        self.say(f"  {t('g.cert.subject')}: {clean(leaf['subject'])}")
+        self.say(f"  {t('g.cert.issuer')}: {clean(top['issuer'])}")
+        self.say(f"  {t('g.cert.expires')}: {clean(leaf['not_after'])}")
+        self.say(f"  {t('g.cert.trusting')}: {clean(top['subject'])}")
+        self.say(f"  SHA-256: {clean(top['sha256'])}")
+        if not self.yes(t("g.cert.ask")):
+            self.error(t("g.cert.refused"))
+            return None
+        base = os.path.dirname(os.path.abspath(self.scope_path))
+        return self.tls.save_pin(base, tg.host, tg.port, chain[-1])
+
+    def add_flow(self, url: str, name: str) -> None:
+        try:
+            tg = parse_target_url(url)
+        except ValueError:
+            self.error(t("err.scope_invalid", reason=t("scope.reason.bad_url", url=clean(url, 200))))
+            return
+        ca = ""
+        if tg.scheme == "https":
+            ca = self.trust_flow(tg.url)
+            if ca is None:
+                return
+        if not self.yes(t("g.authorize", url=clean(tg.url, 200))):
             self.error(t("g.not_authorized"))
             return
+        if not name:
+            hit = self.probe(tg.host, tg.port)
+            name = hit[1] if hit and hit[1] else tg.host
+        rate = 20.0 if is_private(tg.host) else None
         try:
-            add_target(self.scope_path, url, name, ca, ports)
+            add_target(self.scope_path, tg.url, name, ca, None, rate)
         except ScopeError as exc:
-            params = dict(exc.params)
-            if "reason_key" in params:
-                params["reason"] = t(params.pop("reason_key"), **params)
-            self.error(t(exc.code, **params))
+            self.error(self.scope_error(exc))
             return
         except OSError:
             self.error(t("err.output_dir"))
             return
-        self.say(paint(f"{symbol('ok')} {t('g.added', path=clean(self.scope_path))}", "ok"))
+        self.ok(t("g.added", path=clean(self.scope_path)))
+        self.scan_flow(tg.url)
 
-    def choose_phases(self, sc: Scope, url: str) -> tuple[str, ...]:
+    # ------------------------------------------------------------ analisi
+    def choose_profile(self, sc: Scope) -> tuple[str, ...]:
+        self.say("")
+        self.say(paint(t("g.profile"), "title"))
+        self.say(f"  1) {t('g.profile.quick')}")
+        self.say(f"  2) {t('g.profile.full')}  " + paint(t("g.recommended"), "brand"))
+        self.say(f"  3) {t('g.profile.custom')}")
+        self.say(f"  q) {t('g.back')}")
+        choice = self.ask(t("g.choose_default")).lower() or "2"
+        if choice == "q":
+            raise Back()
+        if choice in PROFILES:
+            return PROFILES[choice]
+        if choice == "3":
+            return self.choose_phases(sc)
+        self.error(t("g.invalid"))
+        raise Back()
+
+    def choose_phases(self, sc: Scope) -> tuple[str, ...]:
         avail = {"web": True, "nuclei": which("nuclei") is not None,
                  "nmap": which("nmap") is not None and sc.ports != "none"}
-        on = {k: avail[k] for k in avail}
+        on = dict(avail)
         order = ("web", "nuclei", "nmap")
         while True:
             self.say("")
-            self.say(paint(t("g.phases", url=clean(url)), "title"))
             for i, key in enumerate(order, 1):
-                mark = "x" if on[key] else " "
-                label = t(f"g.phase.{key}", ports=sc.ports)
                 note = ""
                 if not avail[key]:
                     reason = t("g.missing") if which(key) is None else t("g.ports_none")
                     note = paint(f"  ({reason})", "dim")
-                self.say(f"  {i}) [{mark}] {label}{note}")
+                self.say(f"  {i}) [{'x' if on[key] else ' '}] {t(f'g.phase.{key}', ports=sc.ports)}{note}")
             self.say(paint(f"  {t('g.phases_help')}", "dim"))
-            self.say(f"  q) {t('g.back')}")
             choice = self.ask(t("g.choose")).lower()
             if choice == "q":
                 raise Back()
@@ -154,23 +252,19 @@ class Guided:
                 if chosen:
                     return chosen
                 self.error(t("g.no_phase"))
-                continue
-            if choice.isdigit() and 1 <= int(choice) <= len(order):
+            elif choice.isdigit() and 1 <= int(choice) <= len(order):
                 key = order[int(choice) - 1]
                 if avail[key] or on[key]:
                     on[key] = not on[key]
-                continue
-            self.error(t("g.invalid"))
+            else:
+                self.error(t("g.invalid"))
 
-    def scan_flow(self, sc: Scope, tg) -> None:
-        phases = self.choose_phases(sc, tg.url)
-        self.say("")
-        self.say(paint(t("g.summary"), "title"))
-        self.say(f"  {t('g.summary.target')}: {clean(tg.url)}")
-        self.say(f"  {t('g.summary.phases')}: {', '.join(phases)}")
-        if self.ask(t("g.start")).lower() not in ("s", "si", "sì"):
-            self.say(t("g.cancelled"))
+    def scan_flow(self, url: str) -> None:
+        sc = self.load()
+        tg = next((x for x in sc.targets if x.url == url), None) if sc else None
+        if tg is None:
             return
+        phases = self.choose_profile(sc)
         one = dataclasses.replace(sc, targets=(tg,))
         try:
             outcome = self.runner(one, SafeClient(one), phases)
@@ -178,9 +272,14 @@ class Guided:
             self.say("")
             self.error(t("err.interrupted"))
             return
-        if outcome == "tls":
-            self.error(t("g.tls"))
-        elif outcome == "net":
+        if outcome == "tls" and tg.scheme == "https":
+            ca = self.trust_flow(tg.url, changed=bool(tg.ca_file))
+            if ca:
+                add_target(self.scope_path, tg.url, ca_file=ca)
+                self.ok(t("g.cert.saved"))
+                self.scan_flow(tg.url)
+            return
+        if outcome == "net":
             self.error(t("g.unreachable"))
         elif isinstance(outcome, rpt.ReportError):
             self.error(t(outcome.code))

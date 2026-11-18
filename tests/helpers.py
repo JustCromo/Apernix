@@ -41,6 +41,7 @@ class LocalServer:
     def __init__(self, routes: dict) -> None:
         handler = type("H", (Handler,), {"routes": routes})
         self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        self.httpd.handle_error = lambda *a: None   # connessioni chiuse a metà (es. solo handshake TLS)
         self.port = self.httpd.server_address[1]
         self.base = f"http://127.0.0.1:{self.port}"
         self.thread = threading.Thread(target=self.httpd.serve_forever, daemon=True)
@@ -79,3 +80,36 @@ def scope_file(tmp: str, url: str, mode: int = 0o600, confirmed: bool = True) ->
 
 def tmpdir():
     return tempfile.TemporaryDirectory(prefix="apernix-test-")
+
+
+def make_tls_fixture(folder: str):
+    """Crea con openssl una CA finta e un certificato per 127.0.0.1 (solo per i test).
+    Restituisce (ca.crt, srv.crt, srv.key) oppure None se openssl manca."""
+    import shutil
+    import subprocess
+    if shutil.which("openssl") is None:
+        return None
+    ca_key, ca_crt = os.path.join(folder, "ca.key"), os.path.join(folder, "ca.crt")
+    key, csr, crt, ext = (os.path.join(folder, n) for n in ("srv.key", "srv.csr", "srv.crt", "ext"))
+    with open(ext, "w") as fh:
+        fh.write("subjectAltName=IP:127.0.0.1\nbasicConstraints=CA:FALSE\n"
+                 "authorityKeyIdentifier=keyid\nsubjectKeyIdentifier=hash\n")
+    q = {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL, "check": True}
+    ec = ["-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1", "-nodes"]
+    subprocess.run(["openssl", "req", "-x509", *ec, "-keyout", ca_key, "-out", ca_crt, "-days", "2",
+                    "-subj", "/CN=Apernix Test CA", "-addext", "basicConstraints=critical,CA:TRUE",
+                    "-addext", "keyUsage=critical,keyCertSign,cRLSign"], **q)
+    subprocess.run(["openssl", "req", *ec, "-keyout", key, "-out", csr, "-subj", "/CN=127.0.0.1"], **q)
+    subprocess.run(["openssl", "x509", "-req", "-in", csr, "-CA", ca_crt, "-CAkey", ca_key,
+                    "-CAcreateserial", "-out", crt, "-days", "2", "-extfile", ext], **q)
+    return ca_crt, crt, key
+
+
+class TLSServer(LocalServer):
+    def __init__(self, routes: dict, crt: str, key: str) -> None:
+        import ssl
+        super().__init__(routes)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.load_cert_chain(crt, key)
+        self.httpd.socket = ctx.wrap_socket(self.httpd.socket, server_side=True)
+        self.base = f"https://127.0.0.1:{self.port}"

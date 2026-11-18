@@ -10,8 +10,15 @@ from __future__ import annotations
 import os
 import tempfile
 
-from apernix.scope import (LIMITS_DEFAULT, Scope, ScopeError, clean_name, parse_target_url, read_scope_doc,
-                           scope_from_dict)
+from apernix.scope import (
+    LIMITS_DEFAULT,
+    Scope,
+    ScopeError,
+    clean_name,
+    parse_target_url,
+    read_scope_doc,
+    scope_from_dict,
+)
 
 
 def _q(value: str) -> str:
@@ -69,7 +76,8 @@ def _write_atomic(path: str, text: str) -> None:
         raise
 
 
-def add_target(path: str, url: str, name: str = "", ca_file: str = "", ports: str | None = None) -> Scope:
+def add_target(path: str, url: str, name: str = "", ca_file: str = "", ports: str | None = None,
+               rate: float | None = None) -> Scope:
     """Aggiunge un bersaglio allo scope (lo crea se manca). Va chiamata solo dopo la conferma
     esplicita dell'autorizzazione da parte dell'utente."""
     try:
@@ -100,7 +108,16 @@ def add_target(path: str, url: str, name: str = "", ca_file: str = "", ports: st
         if ca_file:
             entry["ca_file"] = ca_file
         targets.append(entry)
+    elif ca_file:
+        for item in targets:
+            try:
+                if parse_target_url(item["url"]).url == tg.url:
+                    item["ca_file"] = ca_file
+            except ValueError:
+                pass
     doc["target"] = targets
+    if rate is not None:
+        doc["limits"] = {**_d(doc.get("limits")), "rate": rate}
     if ports is not None:
         doc["network"] = {**_d(doc.get("network")), "ports": ports}
     base = os.path.dirname(os.path.abspath(path))

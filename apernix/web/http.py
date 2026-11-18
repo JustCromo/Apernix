@@ -8,13 +8,27 @@ from dataclasses import dataclass, field
 from urllib.parse import urljoin
 
 import requests
+from requests.adapters import HTTPAdapter
 
 from apernix import __version__
 from apernix.scope import Scope
+from apernix.tlsinfo import pinned_context
 
 MAX_BODY = 2 * 1024 * 1024   # oltre i 2 MB il corpo della risposta viene troncato
 MAX_REDIRECTS = 5
 USER_AGENT = f"Apernix/{__version__} (+security assessment)"
+
+
+class _PinnedAdapter(HTTPAdapter):
+    """Adapter HTTPS che usa un contesto TLS dedicato (CA privata o certificato accettato)."""
+
+    def __init__(self, context, **kw) -> None:
+        self._context = context
+        super().__init__(**kw)
+
+    def init_poolmanager(self, *args, **kw):
+        kw["ssl_context"] = self._context
+        return super().init_poolmanager(*args, **kw)
 
 
 class OutOfScope(Exception):
@@ -44,6 +58,10 @@ class SafeClient:
         # Niente compressione: il limite di memoria vale sui byte veri (difesa da "zip bomb").
         self.session.headers["Accept-Encoding"] = "identity"
         self.session.trust_env = False   # niente proxy o credenziali presi dall'ambiente
+        for tg in scope.targets:
+            if tg.ca_file and tg.scheme == "https":
+                netloc = f"[{tg.host}]" if ":" in tg.host else tg.host
+                self.session.mount(f"https://{netloc}:{tg.port}/", _PinnedAdapter(pinned_context(tg.ca_file)))
         self._lock = threading.Lock()
         self._count = 0
         self._last = 0.0
