@@ -5,7 +5,9 @@ Sono "passivi": leggono solo la risposta a una normale GET, non provano attacchi
 
 from __future__ import annotations
 
+import ipaddress
 import re
+from urllib.parse import urlsplit
 
 from apernix.i18n import t
 from apernix.models import Finding
@@ -23,9 +25,30 @@ def _f(check: str, element: str, impact: int, prob: int, evidence: list[str]) ->
     )
 
 
+def network_scope(url: str) -> str:
+    """'loopback' (solo questa macchina), 'private' (rete locale) o 'public'."""
+    host = (urlsplit(url).hostname or "").lower()
+    if host == "localhost":
+        return "loopback"
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return "private" if host.endswith((".local", ".lan", ".home.arpa")) else "public"
+    if ip.is_loopback:
+        return "loopback"
+    return "private" if ip.is_private or ip.is_link_local else "public"
+
+
+# Probabilità che qualcuno legga il traffico in chiaro: su 127.0.0.1 il traffico non esce dalla macchina,
+# in rete locale serve qualcuno già dentro la rete, su Internet è il caso peggiore.
+CLEARTEXT_PROBABILITY = {"loopback": 1, "private": 2, "public": 3}
+
+
 def check_transport(resp: Response) -> list[Finding]:
     if resp.url.lower().startswith("http://"):
-        return [_f("WEB-HTTP-001", resp.url, 4, 3, [t("ev.scheme_http", url=resp.url)])]
+        where = network_scope(resp.url)
+        ev = [t("ev.scheme_http", url=resp.url), t(f"ev.net.{where}")]
+        return [_f("WEB-HTTP-001", resp.url, 4, CLEARTEXT_PROBABILITY[where], ev)]
     return []
 
 

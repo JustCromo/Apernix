@@ -314,21 +314,26 @@ def footer_keys(s: DashState) -> list[tuple[str, str]]:
     if s.modal:
         return []
     if s.detail:
-        return [("Esc", t("dash.k.back")), ("↑↓", t("dash.k.scroll"))]
+        return [("Esc", t("dash.k.back")), ("↑↓", t("dash.k.scroll")), ("Tab", t("dash.k.next")),
+                ("1-5", t("dash.k.section"))]
     keys: list[tuple[str, str]] = []
-    panel = s.zoom if s.zoom is not None else s.focus
-    if panel == P_TARGETS and not s.running:
-        keys += [("Invio", t("dash.k.analyze")), ("a", t("dash.k.add")), ("d", t("dash.k.discover")),
-                 ("p", t("dash.k.profile"))]
-    elif panel == P_FINDINGS:
+    panel = s.focus
+    opened = s.zoom is not None
+    if not opened:
+        keys += [("Invio", t("dash.k.open")), ("↑↓", t("dash.k.choose"))]
+    elif panel == P_TARGETS and not s.running:
+        keys += [("Invio", t("dash.k.analyze")), ("↑↓", t("dash.k.choose"))]
+    elif panel in (P_FINDINGS, P_PHASES):
         keys += [("Invio", t("dash.k.details")), ("↑↓", t("dash.k.choose"))]
     elif panel == P_LIVE:
         keys += [("↑↓", t("dash.k.scroll")), ("End", t("dash.k.follow"))]
-    elif panel in (P_PHASES, P_SURFACE):
-        keys += [("Invio", t("dash.k.details"))]
+    if panel == P_TARGETS and not s.running:
+        keys += [("a", t("dash.k.add")), ("d", t("dash.k.discover")), ("p", t("dash.k.profile"))]
     if s.running:
         keys.insert(0, ("x", t("dash.k.stop")))
-    keys += [("Tab", t("dash.k.next")), ("1-5", t("dash.k.zoom") if s.zoom is None else t("dash.k.unzoom"))]
+    keys += [("Tab", t("dash.k.next"))]
+    if opened:
+        keys.append(("Esc", t("dash.k.unzoom")))
     if s.report:
         keys.append(("r", t("dash.k.report")))
     keys += [("?", t("dash.k.guide")), ("q", t("dash.k.quit"))]

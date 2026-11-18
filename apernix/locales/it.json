@@ -268,7 +268,7 @@
   "dash.quit.question": "C'è un'analisi in corso: la fermo ed esco?",
   "dash.act.report": "Scrivo il report (JSON e Markdown)",
   "dash.note.saved": "salvato",
-  "dash.guide": "Apernix analizza una web application come farebbe un attaccante, senza fare danni.||Navigazione|  Tab / Maiusc+Tab   passa da un pannello all'altro|  1-5               ingrandisce un pannello (stesso numero o Esc per tornare)|  ↑↓  PagSu PagGiù   scorre o sceglie dentro il pannello|  Invio             apre il dettaglio (o avvia l'analisi nei Bersagli)|  Esc / q           torna indietro||Bersagli|  ● autorizzato   ○ trovato su questa macchina, da autorizzare|  a aggiungi un URL a mano, d cerca di nuovo, p cambia profilo (Rapida / Completa)||Durante l'analisi|  il pannello Live segue ogni passo; scorrendo in su si ferma, End torna a seguirlo|  x ferma l'analisi, r mostra dove è salvato il report||Ogni analisi produce report.json e report.md nella cartella apernix-reports.",
+  "dash.guide": "Apernix analizza una web application come farebbe un attaccante, senza fare danni.||Navigazione|  Tab / Maiusc+Tab   passa da una sezione all'altra (anche da un dettaglio)|  ↑↓  PagSu PagGiù   sceglie una riga dentro la sezione|  Invio             apre la sezione, con il cursore sulla riga scelta;|                    nella sezione aperta agisce sulla riga (analizza, dettagli)|  1-5               apre direttamente una sezione (stesso numero per tornare)|  Esc / q           torna indietro||Bersagli|  ● autorizzato   ○ trovato su questa macchina, da autorizzare|  a aggiungi un URL a mano, d cerca di nuovo, p cambia profilo (Rapida / Completa)||Durante l'analisi|  il pannello Live segue ogni passo; scorrendo in su si ferma, End torna a seguirlo|  x ferma l'analisi, r mostra dove è salvato il report||Ogni analisi produce report.json e report.md nella cartella apernix-reports.",
   "cmd.dashboard": "apre la dashboard (anche: apernix senza argomenti)",
   "err.no_tty": "la dashboard ha bisogno di un terminale interattivo",
   "err.no_tty.hint": "usa 'apernix scan' per lanciare l'analisi da script",
@@ -284,9 +284,9 @@
   "dash.k.choose": "scegli",
   "dash.k.follow": "segui",
   "dash.k.stop": "ferma",
-  "dash.k.next": "pannello",
+  "dash.k.next": "sezione",
   "dash.k.zoom": "ingrandisci",
-  "dash.k.unzoom": "torna alla vista",
+  "dash.k.unzoom": "vista d'insieme",
   "dash.k.report": "report",
   "dash.k.guide": "guida",
   "dash.k.quit": "esci",
@@ -306,5 +306,10 @@
   "dash.report.md": "da leggere: tabella dei rischi e dettagli",
   "dash.report.json": "per altri programmi (formato stabile)",
   "err.dashboard_crash": "La dashboard si è chiusa per un errore imprevisto (il report delle analisi finite è salvato).",
-  "err.dashboard_crash.hint": "Usa 'apernix menu' o 'apernix scan'; con APERNIX_DEBUG=1 vedi i dettagli tecnici."
+  "err.dashboard_crash.hint": "Usa 'apernix menu' o 'apernix scan'; con APERNIX_DEBUG=1 vedi i dettagli tecnici.",
+  "dash.k.open": "apri",
+  "dash.k.section": "vai a",
+  "ev.net.loopback": "raggiungibile su 127.0.0.1: il traffico non esce da questa macchina (rischio ridotto, ma se il servizio ascolta anche sulla rete il rischio sale)",
+  "ev.net.private": "indirizzo di rete locale: chi è collegato alla stessa rete può leggere il traffico",
+  "ev.net.public": "indirizzo pubblico: il traffico attraversa reti non controllate"
 }

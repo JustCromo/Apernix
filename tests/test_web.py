@@ -113,3 +113,13 @@ class TestSafeClient(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTransportContext(unittest.TestCase):
+    def test_probability_depends_on_network(self):
+        cases = {"http://127.0.0.1:8421/": 1, "http://localhost/": 1, "http://192.168.1.187/": 2,
+                 "http://racoonix.local/": 2, "http://93.184.216.34/": 3, "http://example.com/": 3}
+        for url, prob in cases.items():
+            f = checks.check_transport(resp(url=url))[0]
+            self.assertEqual(f.probability, prob, url)
+            self.assertEqual(len(f.evidence), 2)

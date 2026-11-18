@@ -145,8 +145,13 @@ class TestView(unittest.TestCase):
         from apernix.dashboard.view import footer_keys
         s = DashState()
         self.assertIn("1 Bersagli", self.render(s))
+        self.assertIn("apri", dict(footer_keys(s)).values())
+        s.zoom = 0
         self.assertIn("analizza", dict(footer_keys(s)).values())
+        s.zoom = None
         s.focus = 3
+        self.assertIn("apri", dict(footer_keys(s)).values())
+        s.zoom = 3
         self.assertIn("dettagli", dict(footer_keys(s)).values())
         s.running = True
         self.assertEqual(footer_keys(s)[0][0], "x")
@@ -176,7 +181,9 @@ class TestController(unittest.TestCase):
             self.assertEqual(len(c.state.targets), 1)
             self.assertFalse(c.state.targets[0].authorized)
             c.state.profile = 0                      # rapida: niente nmap/nuclei nei test
-            c.handle_key("ENTER")
+            c.handle_key("ENTER")                    # vista d'insieme: apre la sezione Bersagli
+            self.assertEqual(c.state.zoom, 0)
+            c.handle_key("ENTER")                    # sezione aperta: agisce sulla riga
             self.assertEqual(c.state.modal.title, "Autorizzazione")
             c.handle_key("s")
             c.pump()
@@ -190,6 +197,7 @@ class TestController(unittest.TestCase):
     def test_authorization_refused(self):
         with tmpdir() as d:
             c = self.ctrl(d, [Candidate("http://127.0.0.1:9/", "x", "", "docker")])
+            c.handle_key("ENTER")
             c.handle_key("ENTER")
             c.handle_key("n")
             self.assertFalse(os.path.exists(c.scope_path))
@@ -288,6 +296,35 @@ class TestController(unittest.TestCase):
             c.handle_key("q")                     # q senza zoom e senza analisi: esce
             self.assertTrue(c.quit)
 
+    def test_enter_opens_section_on_same_row(self):
+        with tmpdir() as d:
+            c = self.ctrl(d)
+            for i in range(5):
+                c.state.findings.append(finding(title=f"P{i}"))
+            c.state.focus = 3
+            c.handle_key("DOWN")
+            c.handle_key("DOWN")                  # nella vista d'insieme scendo sulla riga 3
+            c.handle_key("ENTER")                 # Invio apre la sezione...
+            self.assertEqual((c.state.zoom, c.state.finding_sel), (3, 2))   # ...con il cursore lì
+            self.assertIsNone(c.state.detail)
+            c.handle_key("ENTER")                 # Invio nella sezione aperta: dettaglio di quella riga
+            self.assertEqual(c.state.detail.title, "P2")
+
+    def test_tab_works_from_detail(self):
+        with tmpdir() as d:
+            c = self.ctrl(d)
+            c.state.findings.append(finding(title="P0"))
+            c.handle_key("4")
+            c.handle_key("ENTER")
+            self.assertIsNotNone(c.state.detail)
+            c.handle_key("TAB")                   # dal dettaglio si passa alla sezione successiva
+            self.assertIsNone(c.state.detail)
+            self.assertEqual((c.state.focus, c.state.zoom), (4, 4))
+            c.handle_key("ENTER")                 # Superficie aperta: Invio non apre pagine vuote
+            self.assertIsNone(c.state.detail)
+            c.handle_key("2")
+            self.assertEqual((c.state.focus, c.state.zoom), (1, 1))
+
     def test_tab_cycles_all_panels(self):
         with tmpdir() as d:
             c = self.ctrl(d)
@@ -326,6 +363,7 @@ class TestController(unittest.TestCase):
                 seen.append(c.state.focus)
             c.state.reset_run = spy
             c.handle_key("ENTER")
+            c.handle_key("ENTER")
             c.pump()
             self.assertEqual(seen, [1])                 # durante l'analisi: Live
             self.assertEqual(c.state.focus, 3)          # alla fine: Problemi, il più grave selezionato
@@ -358,6 +396,31 @@ class TestHelpers(unittest.TestCase):
             self.assertEqual(len(out), len(text))
             self.assertTrue(out.isascii())
         self.assertEqual(to_ascii("Vulnerabilità"), "Vulnerabilita")
+
+    def test_escape_sequences(self):
+        import curses
+
+        from apernix.dashboard.app import _read_escape
+
+        class Win:
+            def __init__(self, chars):
+                self.chars = list(chars)
+
+            def nodelay(self, flag):
+                pass
+
+            def timeout(self, ms):
+                pass
+
+            def get_wch(self):
+                if not self.chars:
+                    raise curses.error()
+                return self.chars.pop(0)
+        self.assertEqual(_read_escape(Win("[B"), curses), "DOWN")
+        self.assertEqual(_read_escape(Win("OA"), curses), "UP")
+        self.assertEqual(_read_escape(Win("[6~"), curses), "PGDN")
+        self.assertEqual(_read_escape(Win(""), curses), "ESC")
+        self.assertEqual(_read_escape(Win("[99X"), curses), "")      # sequenza sconosciuta: ignorata
 
     def test_keys_and_colors(self):
         import curses

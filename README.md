@@ -5,7 +5,7 @@
 Apernix fa parte della suite Nemirix, insieme a Vulpnix, Erinix e Strinix.
 Il nome viene dal latino *aper*, cinghiale.
 
-> Stato: in sviluppo (v0.5.1): analisi esterna (controlli web, fingerprint, nmap, nuclei) e dashboard.
+> Stato: in sviluppo (v0.5.2): analisi esterna (controlli web, fingerprint, nmap, nuclei) e dashboard.
 > Il README completo arriva con la v1.0.0.
 
 ## Dipendenze esterne (consigliate)
@@ -44,9 +44,11 @@ Senza argomenti si apre la **dashboard** a tutto schermo (serve un terminale di 
 | 5 Superficie | tecnologie, servizi in rete e percorso dell'ultimo report |
 | piede | **cosa sta facendo adesso** e i tasti disponibili |
 
-Navigazione (come in Erinix): Tab / Maiusc+Tab passa da un pannello all'altro, `1`-`5` ingrandisce
-un pannello (stesso numero o Esc per tornare), ↑↓ PagSu PagGiù scorre, Invio apre il dettaglio a
-pagina intera (Esc o `q` per tornare). Nei Bersagli: Invio analizza, `a` aggiungi URL, `d` cerca di
+Navigazione (come in Erinix): Tab / Maiusc+Tab passa da una sezione all'altra, anche da una pagina
+di dettaglio; ↑↓ PagSu PagGiù sceglie una riga. Invio nella vista d'insieme **apre la sezione** con il
+cursore sulla riga già scelta; Invio nella sezione aperta **agisce** su quella riga (nei Bersagli
+avvia l'analisi, nei Problemi e nelle Fasi apre il dettaglio a pagina intera). `1`-`5` apre
+direttamente una sezione, Esc o `q` torna indietro. Nei Bersagli: `a` aggiungi URL, `d` cerca di
 nuovo, `p` cambia profilo. Sempre: `x` ferma, `r` report, `?` guida, `q` esci. I tasti utili nel
 pannello attivo sono sempre scritti in basso. Quando parte un'analisi il focus va sul Live (che segue
 gli ultimi passi, finché non scorri in su); quando finisce va sui Problemi, con il più grave già

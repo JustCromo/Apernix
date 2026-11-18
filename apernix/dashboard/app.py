@@ -21,7 +21,6 @@ from apernix.dashboard.state import (
     P_FINDINGS,
     P_LIVE,
     P_PHASES,
-    P_SURFACE,
     P_TARGETS,
     PANELS,
     DashState,
@@ -330,7 +329,11 @@ class Controller:
 
     def _detail_key(self, key: str) -> None:
         d = self.state.detail
-        if key in ("ESC", "q", "Q", "ENTER", "BACKSPACE"):
+        if key in ("TAB", "BTAB", "1", "2", "3", "4", "5"):
+            # anche da un dettaglio si viaggia tra le sezioni: si chiude e si passa alla sezione
+            self.state.detail = None
+            self.handle_key(key)
+        elif key in ("ESC", "q", "Q", "ENTER", "BACKSPACE"):
             self.state.detail = None
         elif key in ("UP", "k"):
             d.scroll = max(0, d.scroll - 1)
@@ -357,15 +360,17 @@ class Controller:
             s.live_scroll = max(0, min(len(s.live) - 1, s.live_scroll - step)) if s.live else 0
 
     def _enter(self) -> None:
+        """Invio nella vista d'insieme apre la sezione (con il cursore sulla stessa riga);
+        Invio nella sezione aperta agisce sulla riga scelta."""
         s = self.state
         panel = s.focus
+        if s.zoom is None:
+            s.zoom = panel
+            return
         if panel == P_FINDINGS and s.findings:
             s.detail = finding_detail(s.findings[s.finding_sel])
         elif panel == P_PHASES:
             s.detail = phase_detail(s, FLOW[s.phase_sel])
-        elif panel == P_SURFACE:
-            from apernix.dashboard.view import surface_lines
-            s.detail = Detail(t("dash.panel.surface"), surface_lines(s))
         elif panel == P_LIVE:
             s.live_scroll = 0
         elif panel == P_TARGETS and not s.running and s.targets:
@@ -462,6 +467,8 @@ def run(scope_path: str, out_dir: str) -> int:
                 except curses.error:
                     continue
                 key = _key_name(ch, curses)
+                if key == "ESC":
+                    key = _read_escape(stdscr, curses)
                 if key:
                     ctrl.handle_key(key)
             except KeyboardInterrupt:
@@ -480,6 +487,34 @@ def run(scope_path: str, out_dir: str) -> int:
         print(t("err.dashboard_crash"), file=sys.stderr)
         print("  " + t("err.dashboard_crash.hint"), file=sys.stderr)
         return 2
+
+
+ESC_SEQ = {"[A": "UP", "[B": "DOWN", "[H": "HOME", "[F": "END", "[5~": "PGUP", "[6~": "PGDN", "[Z": "BTAB",
+           "OA": "UP", "OB": "DOWN", "OH": "HOME", "OF": "END", "[1~": "HOME", "[4~": "END"}
+
+
+def _read_escape(win, curses) -> str:
+    """Alcuni terminali mandano le frecce come sequenze che curses non riconosce (es. ESC [ B):
+    si leggono i caratteri che seguono subito l'ESC. Se non arriva niente, era davvero Esc."""
+    win.nodelay(True)
+    seq = ""
+    try:
+        for _ in range(4):
+            try:
+                ch = win.get_wch()
+            except curses.error:
+                break
+            if not isinstance(ch, str):
+                break
+            seq += ch
+            if seq in ESC_SEQ:
+                return ESC_SEQ[seq]
+            if len(seq) >= 2 and (seq[-1].isalpha() or seq[-1] == "~"):
+                break
+    finally:
+        win.nodelay(False)
+        win.timeout(120)
+    return "ESC" if not seq else ""
 
 
 def _key_name(ch, curses) -> str:

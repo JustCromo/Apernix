@@ -133,15 +133,17 @@ class TestCli(unittest.TestCase):
             self.assertIn("non risponde", err)
 
     def test_scan_end_to_end(self):
-        routes = {"/": (200, [("Server", "Evil/1.0\x1b]0;pwned"), ("Set-Cookie", "sid=1")], b"hi")}
+        routes = {"/": (200, [("Server", "Evil/1.0\x1b]0;pwned"), ("Set-Cookie", "sid=1")], b"hi"),
+                  "/.env": (200, [], b"SECRET_KEY=x\n")}
         with LocalServer(routes) as srv, tmpdir() as d:
             path = scope_file(d, srv.base + "/")
             code, out, _ = run(["scan", "--scope", path, "--out", os.path.join(d, "o"), "--json", "--quick"])
-            self.assertEqual(code, 1)   # HTTP in chiaro = rischio alto
+            self.assertEqual(code, 1)   # .env esposto = rischio critico
             doc = json.loads(out)
             ids = {f["check"] for f in doc["findings"]}
             self.assertIn("WEB-HTTP-001", ids)
             self.assertIn("WEB-DISC-001", ids)
+            self.assertIn("WEB-EXP-ENV", ids)
             self.assertNotIn("\x1b", out)
             self.assertTrue(os.path.isfile(os.path.join(doc["saved"], "report.md")))
             code, md, _ = run(["report", os.path.join(doc["saved"], "report.json")])
