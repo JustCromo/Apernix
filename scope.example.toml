@@ -10,7 +10,13 @@ owner = ""
 url = "http://127.0.0.1:8000/"
 name = "La mia web application"
 
+[network]
+# Porte che nmap controlla sugli host dei bersagli:
+# none (nessuna), top100, top1000, all, oppure un elenco come "22,80,443,8000-8100"
+ports = "top1000"
+
 [limits]
 rate = 5             # richieste al secondo (0.1 - 50)
 max_requests = 300   # tetto di richieste per analisi (1 - 10000)
 timeout = 10         # secondi di attesa per risposta (1 - 120)
+# rate e timeout valgono anche per nuclei; max_requests conta solo le richieste di Apernix

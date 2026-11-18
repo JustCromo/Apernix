@@ -126,7 +126,7 @@ class TestCli(unittest.TestCase):
         routes = {"/": (200, [("Server", "Evil/1.0\x1b]0;pwned"), ("Set-Cookie", "sid=1")], b"hi")}
         with LocalServer(routes) as srv, tmpdir() as d:
             path = scope_file(d, srv.base + "/")
-            code, out, _ = run(["scan", "--scope", path, "--out", os.path.join(d, "o"), "--json"])
+            code, out, _ = run(["scan", "--scope", path, "--out", os.path.join(d, "o"), "--json", "--quick"])
             self.assertEqual(code, 1)   # HTTP in chiaro = rischio alto
             doc = json.loads(out)
             ids = {f["check"] for f in doc["findings"]}

@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from apernix import __version__
 from apernix.i18n import t
 from apernix.models import LEVELS, Finding
+from apernix.term import clean
 
 SCHEMA = "apernix-report/1"
 MAX_REPORT_BYTES = 20 * 1024 * 1024
@@ -21,7 +22,23 @@ class ReportError(Exception):
         self.code = code
 
 
-def build(targets: list[str], findings: list[Finding], requests_made: int = 0) -> dict:
+def _tree(value: object, depth: int = 0) -> object:
+    """Copia ripulita di dati annidati non fidati: solo str/int/bool/list/dict, con limiti fissi."""
+    if depth > 4:
+        return None
+    if isinstance(value, bool) or (isinstance(value, int) and -10**9 < value < 10**9):
+        return value
+    if isinstance(value, str):
+        return clean(value, 300)
+    if isinstance(value, list):
+        return [x for x in (_tree(v, depth + 1) for v in value[:200]) if x is not None]
+    if isinstance(value, dict):
+        return {clean(k, 64): v for k, v in ((k, _tree(v, depth + 1)) for k, v in list(value.items())[:100])
+                if isinstance(k, str) and v is not None}
+    return None
+
+
+def build(targets: list[str], findings: list[Finding], requests_made: int = 0, extra: dict | None = None) -> dict:
     ordered = sorted(findings, key=lambda f: (-f.risk, f.check, f.element))
     summary = {lvl: 0 for lvl in LEVELS}
     for f in ordered:
@@ -34,6 +51,9 @@ def build(targets: list[str], findings: list[Finding], requests_made: int = 0) -
         "targets": list(targets),
         "requests": requests_made,
         "summary": summary,
+        "fingerprint": _tree((extra or {}).get("fingerprint", [])),
+        "services": _tree((extra or {}).get("services", {})),
+        "sources": _tree((extra or {}).get("sources", [])),
         "findings": [f.to_dict() for f in ordered],
     }
 
@@ -62,7 +82,9 @@ def load(path: str) -> dict:
     except (ValueError, TypeError) as exc:
         raise ReportError("err.report_invalid") from exc
     clean_targets = [str(x)[:2048] for x in targets if isinstance(x, str)][:64]
-    rebuilt = build(clean_targets, findings, 0)
+    extra = {k: doc.get(k) for k in ("fingerprint", "services", "sources")}
+    extra = {k: v for k, v in extra.items() if isinstance(v, (list, dict))}
+    rebuilt = build(clean_targets, findings, 0, extra)
     gen = doc.get("generated")
     if isinstance(gen, str) and len(gen) <= 40:
         rebuilt["generated"] = gen
@@ -89,6 +111,7 @@ def to_markdown(doc: dict) -> str:
     lines += ["", f"## {t('report.summary')}", "", t("report.formula"), ""]
     lines += [f"| {t('table.risk')} | # |", "|---|---|"]
     lines += [f"| {t('level.' + lvl)} | {doc['summary'][lvl]} |" for lvl in reversed(LEVELS)]
+    lines += _context_md(doc)
     lines += ["", f"## {t('report.findings')}", ""]
     if not doc["findings"]:
         lines += [t("report.none"), ""]
@@ -112,6 +135,31 @@ def to_markdown(doc: dict) -> str:
                   f" ({t('level.' + f['level'])})",
                   f"- **{t('table.remediation')}:** {_md(f['remediation'])}", ""]
     return "\n".join(lines)
+
+
+def _context_md(doc: dict) -> list[str]:
+    lines: list[str] = []
+    fps = [x for x in doc.get("fingerprint", []) if isinstance(x, dict)]
+    if fps:
+        lines += ["", f"## {t('report.fingerprint')}", ""]
+        for fp in fps:
+            tech = ", ".join(_md(x) for x in fp.get("technologies", []) if isinstance(x, str)) or "-"
+            lines.append(f"- {_md(fp.get('url', ''))}: {tech}")
+    services = doc.get("services", {})
+    if isinstance(services, dict) and services:
+        lines += ["", f"## {t('report.services')}", ""]
+        for host, items in services.items():
+            if isinstance(items, list):
+                text = "; ".join(_md(x) for x in items if isinstance(x, str)) or t("report.no_ports")
+                lines.append(f"- **{_md(host)}**: {text}")
+    sources = [x for x in doc.get("sources", []) if isinstance(x, dict)]
+    if sources:
+        lines += ["", f"## {t('report.sources')}", ""]
+        for src in sources:
+            status = src.get("status", "")
+            label = t("source." + status) if isinstance(status, str) and status.replace("_", "").isalpha() else "?"
+            lines.append(f"- {_md(src.get('name', '?'))}: {_md(label)}")
+    return lines
 
 
 def _write_private(path: str, text: str) -> None:

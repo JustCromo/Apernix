@@ -16,12 +16,14 @@ from dataclasses import dataclass, field
 import requests
 
 from apernix import __version__
+from apernix import fingerprint as fpr
 from apernix import report as rpt
 from apernix.i18n import t
 from apernix.models import Finding
 from apernix.scope import Scope, ScopeError, load_scope
+from apernix.sources import nmap, nuclei
 from apernix.term import clean, level_role, paint, symbol
-from apernix.web import checks
+from apernix.web import active, checks
 from apernix.web.http import BudgetExceeded, OutOfScope, SafeClient
 
 EXIT_OK, EXIT_FINDINGS, EXIT_ERROR = 0, 1, 2
@@ -41,6 +43,7 @@ class Opts:
     scope: str = DEFAULT_SCOPE
     out: str = DEFAULT_OUT
     json: bool = False
+    quick: bool = False
     fmt: str = "md"
     args: list[str] = field(default_factory=list)
 
@@ -51,6 +54,8 @@ def parse_opts(cmd: str, argv: list[str]) -> Opts:
     for a in it:
         if a == "--json":
             o.json = True
+        elif a == "--quick":
+            o.quick = True
         elif a in ("--scope", "--out", "--format"):
             value = next(it, None)
             if value is None or value.startswith("--"):
@@ -125,29 +130,85 @@ def cmd_scope(o: Opts) -> int:
     return EXIT_OK
 
 
-def run_scan(sc: Scope, client: SafeClient, progress=lambda s: None) -> tuple[list[Finding], list[str]]:
-    findings: list[Finding] = []
-    reached: list[str] = []
+@dataclass
+class ScanResult:
+    findings: list[Finding] = field(default_factory=list)
+    reached: list[str] = field(default_factory=list)
+    fingerprint: list[dict] = field(default_factory=list)
+    services: dict = field(default_factory=dict)
+    sources: dict = field(default_factory=dict)
+
+    def source(self, name: str, status: str) -> None:
+        # "ok" non sovrascrive un problema già visto su un altro bersaglio.
+        if self.sources.get(name) in (None, "ok", "skipped"):
+            self.sources[name] = status
+
+
+def _step(progress, key: str, **kw) -> None:
+    progress(f"  {symbol('arrow')} {t(key, **kw)}")
+
+
+def run_scan(sc: Scope, client: SafeClient, progress=lambda s: None, quick: bool = False) -> ScanResult:
+    res = ScanResult()
+    res.source("apernix-web", "ok")
     for tg in sc.targets:
         progress(t("scan.start", url=tg.url))
-        progress(f"  {symbol('arrow')} {t('scan.phase.web')}")
+        _step(progress, "scan.phase.web")
         try:
-            resp = client.get(tg.url)
+            home = client.get(tg.url)
         except (requests.RequestException, OutOfScope, BudgetExceeded):
             continue
-        reached.append(tg.url)
-        findings.extend(checks.run_passive(resp))
-    return findings, reached
+        res.reached.append(tg.url)
+        res.findings.extend(checks.run_passive(home))
+        _step(progress, "scan.phase.fingerprint")
+        res.fingerprint.append(fpr.from_response(home))
+        _step(progress, "scan.phase.active")
+        res.findings.extend(active.run_active(client, tg.url, home))
+        if quick:
+            res.source("nuclei", "skipped")
+            continue
+        _step(progress, "scan.phase.nuclei")
+        out = nuclei.scan(tg.url, sc.rate, sc.timeout)
+        if out.ok:
+            found, tech = nuclei.parse(out.output)
+            res.findings.extend(found)
+            res.fingerprint[-1]["technologies"] += [clean(x, 80) for x in tech[:20]]
+        res.source("nuclei", "ok" if out.ok else out.reason)
+    if quick or sc.ports == "none":
+        res.source("nmap", "skipped")
+        return res
+    hosts = {}
+    for tg in sc.targets:
+        if tg.url in res.reached:
+            hosts.setdefault(tg.host, []).append(tg.port)
+    for host, web_ports in hosts.items():
+        _step(progress, "scan.phase.nmap", host=host)
+        out = nmap.scan(host, sc.ports)
+        if not out.ok:
+            res.source("nmap", out.reason)
+            continue
+        try:
+            ports = nmap.parse(out.output)
+        except (ValueError, SyntaxError):
+            res.source("nmap", "unparsable")
+            continue
+        res.source("nmap", "ok")
+        res.services[host] = [nmap.describe(p) for p in ports]
+        res.findings.extend(nmap.findings(host, ports, web_ports))
+    return res
 
 
 def cmd_scan(o: Opts) -> int:
     sc = _scope(o)
     client = SafeClient(sc)
     progress = (lambda s: None) if o.json else (lambda s: out(paint(s, "info")))
-    findings, reached = run_scan(sc, client, progress)
-    if not reached:
+    res = run_scan(sc, client, progress, quick=o.quick)
+    if not res.reached:
         raise CliError("err.target_unreachable")
-    doc = rpt.build([x.url for x in sc.targets], findings, client.requests_made)
+    findings = res.findings
+    extra = {"fingerprint": res.fingerprint, "services": res.services,
+             "sources": [{"name": k, "status": v} for k, v in res.sources.items()]}
+    doc = rpt.build([x.url for x in sc.targets], findings, client.requests_made, extra)
     try:
         folder = rpt.save(doc, o.out)
     except rpt.ReportError as exc:
@@ -159,6 +220,10 @@ def cmd_scan(o: Opts) -> int:
     else:
         print_table(doc)
         out()
+        for src in doc["sources"]:
+            if src["status"] != "ok":
+                out(paint(f"{symbol('warn')} " + t("scan.source_skipped", name=src["name"],
+                                                     status=t("source." + src["status"])), "warn"))
         out(t("scan.done", n=len(findings)))
         out(paint(t("scan.saved", path=clean(folder)), "dim"))
     return EXIT_FINDINGS if worst else EXIT_OK

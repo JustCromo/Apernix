@@ -17,13 +17,24 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     def do_GET(self):
-        status, headers, body = self.routes.get(self.path, (404, [], b"not found"))
+        route = self.routes.get(self.path, self.routes.get("*", (404, [], b"not found")))
+        status, headers, body = route(self) if callable(route) else route
         self.send_response(status)
         for k, v in headers:
             self.send_header(k, v)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        self.wfile.write(body)
+        if self.command != "HEAD":
+            self.wfile.write(body)
+
+    def do_OPTIONS(self):
+        route = self.routes.get(("OPTIONS", self.path), (405, [], b""))
+        status, headers, body = route
+        self.send_response(status)
+        for k, v in headers:
+            self.send_header(k, v)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
 
 class LocalServer:
@@ -47,6 +58,14 @@ def make_scope(url: str, **limits):
     lim = {"rate": 50, "max_requests": 100, "timeout": 5}
     lim.update(limits)
     return scope_from_dict({"authorization": {"confirmed": True}, "target": [{"url": url}], "limits": lim})
+
+
+def fake_tool(bindir: str, name: str, script: str) -> None:
+    """Crea un finto tool eseguibile (script sh) per provare l'integrazione senza quello vero."""
+    path = os.path.join(bindir, name)
+    with open(path, "w") as fh:
+        fh.write("#!/bin/sh\n" + script + "\n")
+    os.chmod(path, 0o755)
 
 
 def scope_file(tmp: str, url: str, mode: int = 0o600, confirmed: bool = True) -> str:

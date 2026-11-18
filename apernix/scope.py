@@ -6,7 +6,9 @@ Apernix non manda una sola richiesta a un indirizzo che non sia nello scope:
 
 from __future__ import annotations
 
+import ipaddress
 import os
+import re
 import stat
 import tomllib
 from dataclasses import dataclass
@@ -17,6 +19,9 @@ MAX_TARGETS = 32
 MAX_URL_LEN = 2048
 LIMITS_DEFAULT = {"rate": 5.0, "max_requests": 300, "timeout": 10.0}
 LIMITS_RANGE = {"rate": (0.1, 50.0), "max_requests": (1, 10000), "timeout": (1.0, 120.0)}
+PORT_SCAN_MODES = ("none", "top100", "top1000", "all")
+_HOSTNAME = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$")
+_PORTS = re.compile(r"^\d{1,5}(?:-\d{1,5})?(?:,\d{1,5}(?:-\d{1,5})?){0,63}$")
 
 
 class ScopeError(Exception):
@@ -42,6 +47,31 @@ def _bad(text: str) -> bool:
     return any(ord(c) < 0x21 or c in "\x7f\\" for c in text)
 
 
+def valid_host(host: str) -> bool:
+    """Hostname o indirizzo IP validi. Mai un valore che inizia con '-' (sarebbe un'opzione per nmap)."""
+    if not host or len(host) > 253 or host.startswith("-"):
+        return False
+    try:
+        ipaddress.ip_address(host)
+        return True
+    except ValueError:
+        return bool(_HOSTNAME.match(host))
+
+
+def valid_port_spec(spec: object) -> bool:
+    if not isinstance(spec, str):
+        return False
+    if spec in PORT_SCAN_MODES:
+        return True
+    if not _PORTS.match(spec):
+        return False
+    for part in spec.split(","):
+        nums = [int(x) for x in part.split("-")]
+        if any(n < 1 or n > 65535 for n in nums) or nums != sorted(nums):
+            return False
+    return True
+
+
 def parse_target_url(raw: object) -> Target:
     if not isinstance(raw, str) or not raw or len(raw) > MAX_URL_LEN or _bad(raw):
         raise ValueError("url")
@@ -54,7 +84,7 @@ def parse_target_url(raw: object) -> Target:
     if parts.fragment or parts.query:
         raise ValueError("query o frammento")
     host = (parts.hostname or "").lower().rstrip(".")
-    if not host:
+    if not valid_host(host):
         raise ValueError("host")
     try:
         port = parts.port or (443 if scheme == "https" else 80)
@@ -77,6 +107,7 @@ class Scope:
     max_requests: int
     timeout: float
     owner: str
+    ports: str = "none"       # porte da far controllare a nmap sugli host dei bersagli
 
     def allows(self, url: str) -> bool:
         """True solo se `url` cade dentro uno dei bersagli autorizzati."""
@@ -162,10 +193,17 @@ def scope_from_dict(doc: dict) -> Scope:
     limits = doc.get("limits", {})
     if not isinstance(limits, dict):
         limits = {}
+    network = doc.get("network", {})
+    if not isinstance(network, dict):
+        network = {}
+    ports = network.get("ports", "none")
+    if not valid_port_spec(ports):
+        raise ScopeError("err.scope_invalid", reason_key="scope.reason.bad_ports")
     return Scope(
         targets=tuple(targets),
         rate=_limit(limits, "rate"),
         max_requests=_limit(limits, "max_requests"),
         timeout=_limit(limits, "timeout"),
         owner=owner[:128],
+        ports=ports,
     )

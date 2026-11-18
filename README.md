@@ -5,8 +5,17 @@
 Apernix fa parte della suite Nemirix, insieme a Vulpnix, Erinix e Strinix.
 Il nome viene dal latino *aper*, cinghiale.
 
-> Stato: in sviluppo (v0.1.0). Questa versione contiene l'ossatura e i primi controlli web passivi.
+> Stato: in sviluppo (v0.2.0): analisi esterna (controlli web, fingerprint, nmap, nuclei).
 > Il README completo arriva con la v1.0.0.
+
+## Dipendenze esterne (consigliate)
+
+Apernix funziona anche senza, ma il report dice quali fonti mancavano.
+
+| Tool | A cosa serve | Arch Linux |
+|---|---|---|
+| nmap | porte e servizi esposti | `sudo pacman -S nmap` |
+| nuclei | vulnerabilità note (template) | release ufficiale su GitHub (projectdiscovery/nuclei), poi `nuclei -update-templates` |
 
 ## Installazione
 
@@ -26,6 +35,8 @@ chmod 600 scope.toml
 .venv/bin/apernix scope
 .venv/bin/apernix scan
 ```
+
+Per un controllo veloce senza nmap e nuclei: `apernix scan --quick`.
 
 Il report viene salvato in `apernix-reports/<data-ora>/` (`report.json` e `report.md`).
 
