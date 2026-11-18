@@ -5,7 +5,7 @@
 Apernix fa parte della suite Nemirix, insieme a Vulpnix, Erinix e Strinix.
 Il nome viene dal latino *aper*, cinghiale.
 
-> Stato: in sviluppo (v0.4.0): analisi esterna (controlli web, fingerprint, nmap, nuclei) e console guidata automatica.
+> Stato: in sviluppo (v0.5.0): analisi esterna (controlli web, fingerprint, nmap, nuclei) e dashboard.
 > Il README completo arriva con la v1.0.0.
 
 ## Dipendenze esterne (consigliate)
@@ -26,13 +26,29 @@ python -m venv .venv
 .venv/bin/pip install -e .
 ```
 
-## Uso rapido: console guidata
+## Uso rapido: la dashboard
 
 ```bash
 .venv/bin/apernix
 ```
 
-Senza argomenti si apre la console guidata, che fa da sola tutto quello che può:
+Senza argomenti si apre la **dashboard** a tutto schermo (serve un terminale di almeno 80x22):
+
+| Pannello | Cosa mostra |
+|---|---|
+| intestazione | stato, contatori dei problemi per gravità, richieste, tempo, profilo e il **flusso delle fasi** con la barra di completamento |
+| 1 Bersagli | bersagli autorizzati (●) e web application trovate su questa macchina, da autorizzare (○) |
+| 2 Live | ogni passo dell'analisi in tempo reale (es. `GET /.git/HEAD → 404`) |
+| 3 Fasi | stato e barra di avanzamento di ogni fase |
+| 4 Problemi | problemi trovati, dal più grave; Invio apre evidenze e rimedio |
+| 5 Superficie | tecnologie, servizi in rete e percorso dell'ultimo report |
+| piede | **cosa sta facendo adesso** e i tasti disponibili |
+
+Tasti: ↑↓ scegli, Invio analizza, `a` aggiungi URL, `p` profilo, `d` cerca di nuovo, Tab cambia
+pannello, `x` ferma, `r` report, `?` guida, `q` esci. Per terminali piccoli c'è `apernix menu`,
+la console a numeri con lo stesso flusso.
+
+La dashboard fa da sola tutto quello che può:
 
 1. **trova le web application su questa macchina** (porte pubblicate da Docker e porte in ascolto,
    letta con `docker ps` e `ss`) oppure accetta un URL scritto a mano;

@@ -4,6 +4,8 @@ import tomllib
 import unittest
 from unittest import mock
 
+import requests
+
 from apernix import cli
 from apernix.discover import Candidate
 from apernix.guided import Guided
@@ -94,10 +96,10 @@ class TestScopeWrite(unittest.TestCase):
 
             def fake(method, url, **kw):
                 seen.append(kw["verify"])
-                raise cli.requests.ConnectionError()
+                raise requests.ConnectionError()
             c.session.request = fake
             for url in ("https://h/", "https://k/"):
-                with self.assertRaises(cli.requests.ConnectionError):
+                with self.assertRaises(requests.ConnectionError):
                     c.get(url)
             self.assertEqual(seen, [os.path.join(d, "ca.crt"), True])
 

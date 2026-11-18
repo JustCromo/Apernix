@@ -94,6 +94,16 @@ class TestCli(unittest.TestCase):
         code, out, _ = run(["version", "--json"])
         self.assertEqual((code, json.loads(out)["ok"]), (0, True))
 
+    def test_no_args_without_terminal_shows_help(self):
+        code, out, _ = run([])
+        self.assertEqual(code, 0)
+        self.assertIn("dashboard", out)
+
+    def test_dashboard_needs_terminal(self):
+        code, _, err = run(["dashboard"])
+        self.assertEqual(code, 2)
+        self.assertIn("terminale interattivo", err)
+
     def test_unknown_command(self):
         code, _, err = run(["boh"])
         self.assertEqual(code, 2)

@@ -9,28 +9,20 @@ Codici di uscita: 0 = tutto ok, 1 = trovati problemi di rischio alto/critico, 2 
 from __future__ import annotations
 
 import json
-import os
 import shlex
 import sys
 from dataclasses import dataclass, field
 
-import requests
-
-from apernix import __version__
-from apernix import fingerprint as fpr
+from apernix import __version__, engine
 from apernix import report as rpt
+from apernix.engine import PHASES, ScanResult, mmss
 from apernix.guided import Guided, prompt_text
 from apernix.i18n import t
-from apernix.models import Finding
 from apernix.scope import Scope, ScopeError, load_scope
-from apernix.sources import nmap, nuclei
 from apernix.term import clean, level_role, paint, symbol
-from apernix.tools import which
-from apernix.web import active, checks
-from apernix.web.http import BudgetExceeded, OutOfScope, SafeClient
+from apernix.web.http import SafeClient
 
 EXIT_OK, EXIT_FINDINGS, EXIT_ERROR = 0, 1, 2
-PHASES = ("web", "nuclei", "nmap")
 DEFAULT_SCOPE = "scope.toml"
 DEFAULT_OUT = "apernix-reports"
 
@@ -141,28 +133,7 @@ def cmd_scope(o: Opts) -> int:
     return EXIT_OK
 
 
-@dataclass
-class ScanResult:
-    findings: list[Finding] = field(default_factory=list)
-    reached: list[str] = field(default_factory=list)
-    errors: dict = field(default_factory=dict)   # url → "tls" | "net"
-    fingerprint: list[dict] = field(default_factory=list)
-    services: dict = field(default_factory=dict)
-    sources: dict = field(default_factory=dict)
-
-    def source(self, name: str, status: str) -> None:
-        # "ok" non sovrascrive un problema già visto su un altro bersaglio.
-        if self.sources.get(name) in (None, "ok", "skipped"):
-            self.sources[name] = status
-
-
-def _step(progress, key: str, **kw) -> None:
-    progress(f"  {symbol('arrow')} {t(key, **kw)}")
-
-
-def _mmss(seconds: float) -> str:
-    s = int(seconds)
-    return f"{s // 60}:{s % 60:02d}"
+PHASE_KEYS = {"web": "scan.phase.web", "nuclei": "scan.phase.nuclei", "nmap": "scan.phase.nmap"}
 
 
 class Ticker:
@@ -176,7 +147,7 @@ class Ticker:
         if not self.enabled:
             return
         self.active = True
-        text = t("scan.wait", elapsed=_mmss(elapsed), limit=_mmss(limit))
+        text = t("scan.wait", elapsed=mmss(elapsed), limit=mmss(limit))
         sys.stdout.write("\r    " + paint(f"{symbol('dot')} {text}", "dim") + "   ")
         sys.stdout.flush()
 
@@ -189,71 +160,20 @@ class Ticker:
 
 def run_scan(sc: Scope, client: SafeClient, progress=lambda s: None, quick: bool = False,
              phases: tuple[str, ...] = PHASES, ticker: Ticker | None = None) -> ScanResult:
+    """Analisi con uscita a righe (comando singolo e console a numeri)."""
     ticker = ticker or Ticker(False)
-    res = ScanResult()
-    if quick:
-        phases = ("web",)
-    res.source("apernix-web", "ok" if "web" in phases else "skipped")
-    for tg in sc.targets:
-        progress(t("scan.start", url=tg.url))
-        try:
-            home = client.get(tg.url)
-        except requests.exceptions.SSLError:
-            res.errors[tg.url] = "tls"
-            continue
-        except (requests.RequestException, OutOfScope, BudgetExceeded):
-            res.errors[tg.url] = "net"
-            continue
-        res.reached.append(tg.url)
-        res.fingerprint.append(fpr.from_response(home))
-        if "web" in phases:
-            _step(progress, "scan.phase.web")
-            res.findings.extend(checks.run_passive(home))
-            if tg.ca_file and tg.scheme == "https":
-                res.findings.append(checks.private_ca(tg.url, os.path.basename(tg.ca_file)))
-            _step(progress, "scan.phase.active")
-            res.findings.extend(active.run_active(client, tg.url, home))
-        if "nuclei" not in phases:
-            res.source("nuclei", "skipped")
-            continue
-        if which("nuclei") is None:
-            res.source("nuclei", "missing")
-            continue
-        _step(progress, "scan.phase.nuclei")
-        try:
-            out = nuclei.scan(tg.url, sc.rate, sc.timeout, tick=ticker)
-        finally:
+
+    def emit(ev) -> None:
+        d = ev.data
+        if ev.kind == "target":
+            progress(t("scan.start", url=d["url"]))
+        elif ev.kind == "phase" and d["state"] == "start" and d["id"] in PHASE_KEYS:
+            progress(f"  {symbol('arrow')} {t(PHASE_KEYS[d['id']])}")
+        elif ev.kind == "wait":
+            ticker(d["elapsed"], d["limit"])
+        elif ev.kind == "phase" and d["state"] in ("done", "fail"):
             ticker.done()
-        if out.ok:
-            found, tech = nuclei.parse(out.output)
-            res.findings.extend(found)
-            res.fingerprint[-1]["technologies"] += [clean(x, 80) for x in tech[:20]]
-        res.source("nuclei", "ok" if out.ok else out.reason)
-    if "nmap" not in phases or sc.ports == "none":
-        res.source("nmap", "skipped")
-        return res
-    hosts = {}
-    for tg in sc.targets:
-        if tg.url in res.reached:
-            hosts.setdefault(tg.host, []).append(tg.port)
-    for host, web_ports in hosts.items():
-        _step(progress, "scan.phase.nmap", host=host)
-        try:
-            out = nmap.scan(host, sc.ports, tick=ticker)
-        finally:
-            ticker.done()
-        if not out.ok:
-            res.source("nmap", out.reason)
-            continue
-        try:
-            ports = nmap.parse(out.output)
-        except (ValueError, SyntaxError):
-            res.source("nmap", "unparsable")
-            continue
-        res.source("nmap", "ok")
-        res.services[host] = [nmap.describe(p) for p in ports]
-        res.findings.extend(nmap.findings(host, ports, web_ports))
-    return res
+    return engine.run_scan(sc, client, ("web",) if quick else phases, emit)
 
 
 def cmd_scan(o: Opts) -> int:
@@ -300,6 +220,13 @@ def _line_editing() -> None:
         import readline  # noqa: F401  (frecce e cronologia nei prompt)
     except ImportError:
         pass
+
+
+def cmd_dashboard(o: Opts) -> int:
+    if not (sys.stdin.isatty() and sys.stdout.isatty()):
+        raise CliError("err.no_tty")
+    from apernix.dashboard.app import run
+    return run(o.scope, o.out)
 
 
 def cmd_menu(o: Opts) -> int:
@@ -365,7 +292,7 @@ def cmd_console(o: Opts) -> int:
             continue
         if parts[0] in ("exit", "quit"):
             break
-        if parts[0] in ("console", "menu"):
+        if parts[0] in ("console", "menu", "dashboard"):
             continue
         dispatch(parts)
     out(t("console.bye"))
@@ -384,6 +311,7 @@ COMMANDS = {
     "report": (cmd_report, "cmd.report"),
     "console": (cmd_console, "cmd.console"),
     "menu": (cmd_menu, "cmd.menu"),
+    "dashboard": (cmd_dashboard, "cmd.dashboard"),
 }
 
 
@@ -418,7 +346,7 @@ def dispatch(argv: list[str]) -> int:
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if not argv:
-        argv = ["menu"] if sys.stdin.isatty() else ["help"]
+        argv = ["dashboard"] if sys.stdin.isatty() and sys.stdout.isatty() else ["help"]
     if argv[0] in ("-h", "--help"):
         argv = ["help"] + argv[1:]
     if argv[0] in ("-V", "--version"):

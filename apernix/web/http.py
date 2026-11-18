@@ -39,6 +39,10 @@ class BudgetExceeded(Exception):
     pass
 
 
+class Cancelled(Exception):
+    """L'utente ha fermato l'analisi."""
+
+
 @dataclass
 class Response:
     url: str
@@ -62,6 +66,8 @@ class SafeClient:
             if tg.ca_file and tg.scheme == "https":
                 netloc = f"[{tg.host}]" if ":" in tg.host else tg.host
                 self.session.mount(f"https://{netloc}:{tg.port}/", _PinnedAdapter(pinned_context(tg.ca_file)))
+        self.cancel = None        # threading.Event: se impostato, l'analisi si ferma alla prossima richiesta
+        self.observer = None      # funzione(metodo, url, stato) chiamata dopo ogni richiesta
         self._lock = threading.Lock()
         self._count = 0
         self._last = 0.0
@@ -71,6 +77,8 @@ class SafeClient:
         return self._count
 
     def _wait_turn(self) -> None:
+        if self.cancel is not None and self.cancel.is_set():
+            raise Cancelled()
         with self._lock:
             if self._count >= self.scope.max_requests:
                 raise BudgetExceeded()
@@ -91,11 +99,16 @@ class SafeClient:
                 raise OutOfScope(current)
             target = self.scope.target_for(current)
             self._wait_turn()
-            resp = self.session.request(
-                method, current, allow_redirects=False, stream=True,
-                timeout=(min(5.0, self.scope.timeout), self.scope.timeout),
-                verify=(target.ca_file if target and target.ca_file else True), **kwargs,
-            )
+            try:
+                resp = self.session.request(
+                    method, current, allow_redirects=False, stream=True,
+                    timeout=(min(5.0, self.scope.timeout), self.scope.timeout),
+                    verify=(target.ca_file if target and target.ca_file else True), **kwargs,
+                )
+            except requests.RequestException:
+                self._notify(method, current, None)
+                raise
+            self._notify(method, current, resp.status_code)
             try:
                 body, truncated = _read_limited(resp)
                 headers = {k.lower(): v for k, v in resp.headers.items()}
@@ -119,6 +132,10 @@ class SafeClient:
                 continue
             return Response(current, status, headers, cookies, body, truncated, chain)
         return Response(current, status, headers, cookies, body, truncated, chain)
+
+    def _notify(self, method: str, url: str, status) -> None:
+        if self.observer is not None:
+            self.observer(method, url, status)
 
     def get(self, url: str, **kwargs) -> Response:
         return self.request("GET", url, **kwargs)
