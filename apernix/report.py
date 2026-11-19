@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import datetime, timezone
 
 from apernix import __version__
@@ -38,7 +39,8 @@ def _tree(value: object, depth: int = 0) -> object:
     return None
 
 
-def build(targets: list[str], findings: list[Finding], requests_made: int = 0, extra: dict | None = None) -> dict:
+def build(targets: list[str], findings: list[Finding], requests_made: int = 0, extra: dict | None = None,
+          meta: dict | None = None) -> dict:
     ordered = sorted(findings, key=lambda f: (-f.risk, f.check, f.element))
     summary = {lvl: 0 for lvl in LEVELS}
     for f in ordered:
@@ -54,6 +56,8 @@ def build(targets: list[str], findings: list[Finding], requests_made: int = 0, e
         "fingerprint": _tree((extra or {}).get("fingerprint", [])),
         "services": _tree((extra or {}).get("services", {})),
         "sources": _tree((extra or {}).get("sources", [])),
+        "meta": {k: clean(v, 120) for k, v in (meta or {}).items()
+                 if k in ("name", "profile", "duration") and isinstance(v, str)},
         "findings": [f.to_dict() for f in ordered],
     }
 
@@ -84,7 +88,8 @@ def load(path: str) -> dict:
     clean_targets = [str(x)[:2048] for x in targets if isinstance(x, str)][:64]
     extra = {k: doc.get(k) for k in ("fingerprint", "services", "sources")}
     extra = {k: v for k, v in extra.items() if isinstance(v, (list, dict))}
-    rebuilt = build(clean_targets, findings, 0, extra)
+    meta = doc.get("meta") if isinstance(doc.get("meta"), dict) else {}
+    rebuilt = build(clean_targets, findings, 0, extra, meta)
     gen = doc.get("generated")
     if isinstance(gen, str) and len(gen) <= 40:
         rebuilt["generated"] = gen
@@ -169,19 +174,37 @@ def _write_private(path: str, text: str) -> None:
         fh.write(text)
 
 
+def slug(text: str) -> str:
+    """Parte del nome della cartella: solo lettere minuscole, numeri e '-' (mai '/', '..' o spazi)."""
+    import unicodedata
+    plain = unicodedata.normalize("NFKD", str(text)).encode("ascii", "ignore").decode().lower()
+    plain = re.sub(r"^[a-z]+://", "", plain)
+    out = re.sub(r"[^a-z0-9]+", "-", plain).strip("-")
+    return out[:40].strip("-") or "bersaglio"
+
+
+def folder_name(doc: dict, now: datetime | None = None) -> str:
+    """Data e ora, poi di cosa parla il report: 2026-11-19_00-53_racoonix."""
+    meta = doc.get("meta") if isinstance(doc.get("meta"), dict) else {}
+    what = meta.get("name") or (doc.get("targets") or [""])[0]
+    return f"{(now or datetime.now()).strftime('%Y-%m-%d_%H-%M')}_{slug(what)}"
+
+
 def save(doc: dict, out_dir: str) -> str:
-    """Salva report.json e report.md in una sottocartella privata (0700, file 0600)."""
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    """Salva report.json, report.md e report.html in una sottocartella privata (0700, file 0600)."""
+    from apernix.report_html import to_html
+    base = folder_name(doc)
     try:
         os.makedirs(out_dir, mode=0o700, exist_ok=True)
-        folder = os.path.join(out_dir, stamp)
+        folder = os.path.join(out_dir, base)
         n = 1
         while os.path.exists(folder):
             n += 1
-            folder = os.path.join(out_dir, f"{stamp}-{n}")
+            folder = os.path.join(out_dir, f"{base}-{n}")
         os.mkdir(folder, 0o700)
         _write_private(os.path.join(folder, "report.json"), json.dumps(doc, ensure_ascii=False, indent=2))
         _write_private(os.path.join(folder, "report.md"), to_markdown(doc))
+        _write_private(os.path.join(folder, "report.html"), to_html(doc))
     except OSError as exc:
         raise ReportError("err.output_dir") from exc
     return folder

@@ -325,6 +325,24 @@ class TestController(unittest.TestCase):
             c.handle_key("2")
             self.assertEqual((c.state.focus, c.state.zoom), (1, 1))
 
+    def test_open_report(self):
+        with tmpdir() as d:
+            opened = []
+            c = self.ctrl(d)
+            c.opener = lambda path: opened.append(path) or True
+            c.handle_key("o")                              # nessun report ancora
+            self.assertEqual(c.state.modal.kind, "info")
+            c.handle_key("ENTER")
+            os.makedirs(os.path.join(d, "rep"))
+            with open(os.path.join(d, "rep", "report.html"), "w") as fh:
+                fh.write("<html></html>")
+            c.state.report = os.path.join(d, "rep")
+            c.handle_key("o")
+            self.assertEqual(opened, [os.path.join(d, "rep", "report.html")])
+            c.opener = lambda path: False                  # niente browser: mostra il percorso
+            c.handle_key("o")
+            self.assertIn("report.html", "\n".join(c.state.modal.lines))
+
     def test_tab_cycles_all_panels(self):
         with tmpdir() as d:
             c = self.ctrl(d)

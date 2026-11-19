@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "apernix"
-version = "0.5.2"
+version = "0.6.0"
 description = "Risk Assessment & VSPT (Vulnerability Scanning + Penetration Testing) per applicazioni web"
 readme = "README.md"
 license = "MIT"

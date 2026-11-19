@@ -335,7 +335,7 @@ def footer_keys(s: DashState) -> list[tuple[str, str]]:
     if opened:
         keys.append(("Esc", t("dash.k.unzoom")))
     if s.report:
-        keys.append(("r", t("dash.k.report")))
+        keys += [("o", t("dash.k.open_report")), ("r", t("dash.k.report"))]
     keys += [("?", t("dash.k.guide")), ("q", t("dash.k.quit"))]
     return keys
 

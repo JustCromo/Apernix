@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import shlex
 import sys
+import time
 from dataclasses import dataclass, field
 
 from apernix import __version__, engine
@@ -68,7 +69,7 @@ def parse_opts(cmd: str, argv: list[str]) -> Opts:
             elif a == "--out":
                 o.out = value
             else:
-                if value not in ("md", "json"):
+                if value not in ("md", "json", "html"):
                     raise CliError("err.usage", cmd=cmd)
                 o.fmt = value
         elif a.startswith("--"):
@@ -180,13 +181,15 @@ def cmd_scan(o: Opts) -> int:
     sc = _scope(o)
     client = SafeClient(sc)
     progress = (lambda s: None) if o.json else (lambda s: out(paint(s, "info")))
+    started = time.monotonic()
     res = run_scan(sc, client, progress, quick=o.quick, phases=o.only, ticker=Ticker(not o.json))
     if not res.reached:
         if "tls" in res.errors.values():
             raise CliError("err.tls")
         raise CliError("err.target_unreachable")
     try:
-        doc, folder = save_scan(sc, client, res, o.out)
+        doc, folder = save_scan(sc, client, res, o.out, profile_label(("web",) if o.quick else o.only),
+                                time.monotonic() - started)
     except rpt.ReportError as exc:
         raise CliError(exc.code) from exc
     if o.json:
@@ -197,10 +200,24 @@ def cmd_scan(o: Opts) -> int:
     return EXIT_FINDINGS if worst else EXIT_OK
 
 
-def save_scan(sc: Scope, client: SafeClient, res: ScanResult, out_dir: str) -> tuple[dict, str]:
+def profile_label(phases) -> str:
+    """Nome leggibile del profilo usato, per il report."""
+    phases = tuple(phases)
+    if phases == ("web",):
+        return t("dash.profile.quick")
+    if set(phases) == set(PHASES):
+        return t("dash.profile.full")
+    return t("html.profile.custom", phases=", ".join(phases))
+
+
+def save_scan(sc: Scope, client: SafeClient, res: ScanResult, out_dir: str, profile: str = "",
+              duration: float = 0.0) -> tuple[dict, str]:
     extra = {"fingerprint": res.fingerprint, "services": res.services,
              "sources": [{"name": k, "status": v} for k, v in res.sources.items()]}
-    doc = rpt.build([x.url for x in sc.targets], res.findings, client.requests_made, extra)
+    names = [x.name or x.host for x in sc.targets]
+    meta = {"name": names[0] if len(names) == 1 else ", ".join(names)[:120], "profile": profile,
+            "duration": mmss(duration) if duration else ""}
+    doc = rpt.build([x.url for x in sc.targets], res.findings, client.requests_made, extra, meta)
     return doc, rpt.save(doc, out_dir)
 
 
@@ -232,11 +249,12 @@ def cmd_dashboard(o: Opts) -> int:
 def cmd_menu(o: Opts) -> int:
     _line_editing()
     def runner(sc: Scope, client: SafeClient, phases: tuple[str, ...]):
+        started = time.monotonic()
         res = run_scan(sc, client, lambda s: out(paint(s, "info")), phases=phases, ticker=Ticker(True))
         if not res.reached:
             return "tls" if "tls" in res.errors.values() else "net"
         try:
-            doc, folder = save_scan(sc, client, res, o.out)
+            doc, folder = save_scan(sc, client, res, o.out, profile_label(phases), time.monotonic() - started)
         except rpt.ReportError as exc:
             return exc
         show_scan(doc, folder)
@@ -266,6 +284,9 @@ def cmd_report(o: Opts) -> int:
         raise CliError(exc.code) from exc
     if o.json or o.fmt == "json":
         emit_json(doc)
+    elif o.fmt == "html":
+        from apernix.report_html import to_html
+        sys.stdout.write(to_html(doc) + "\n")
     else:
         sys.stdout.write(rpt.to_markdown(doc) + "\n")
     return EXIT_OK

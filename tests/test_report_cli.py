@@ -149,6 +149,10 @@ class TestCli(unittest.TestCase):
             code, md, _ = run(["report", os.path.join(doc["saved"], "report.json")])
             self.assertEqual(code, 0)
             self.assertIn("WEB-HTTP-001", md)
+            code, html, _ = run(["report", os.path.join(doc["saved"], "report.json"), "--format", "html"])
+            self.assertEqual(code, 0)
+            self.assertIn("<!DOCTYPE html>", html)
+            self.assertTrue(os.path.isfile(os.path.join(doc["saved"], "report.html")))
 
     def test_lang_env_path_ignored(self):
         os.environ["APERNIX_LANG"] = "../../../etc/passwd"

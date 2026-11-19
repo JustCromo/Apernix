@@ -5,7 +5,7 @@
 Apernix fa parte della suite Nemirix, insieme a Vulpnix, Erinix e Strinix.
 Il nome viene dal latino *aper*, cinghiale.
 
-> Stato: in sviluppo (v0.5.2): analisi esterna (controlli web, fingerprint, nmap, nuclei) e dashboard.
+> Stato: in sviluppo (v0.6.0): analisi esterna (controlli web, fingerprint, nmap, nuclei), dashboard e report HTML.
 > Il README completo arriva con la v1.0.0.
 
 ## Dipendenze esterne (consigliate)
@@ -91,7 +91,21 @@ docker cp NOME-CONTAINER-CADDY:/data/caddy/pki/authorities/local/root.crt ./cadd
 
 Per un controllo veloce senza nmap e nuclei: `apernix scan --quick`.
 
-Il report viene salvato in `apernix-reports/<data-ora>/` (`report.json` e `report.md`).
+## Il report
+
+Ogni analisi crea una cartella privata (permessi 700) con data e bersaglio nel nome, per esempio
+`apernix-reports/2026-11-19_00-53_racoonix/`, che contiene:
+
+| File | Per chi |
+|---|---|
+| `report.html` | da aprire nel browser (dalla dashboard: tasto `o`): voto e verdetto in una frase, piano d'azione (subito / presto / quando puoi) con il tempo stimato, cosa va già bene, ogni problema spiegato in parole semplici con prove e rimedio, mappa del rischio impatto × probabilità e la tabella riassuntiva completa |
+| `report.md` | la stessa tabella in Markdown (si legge anche su GitHub) |
+| `report.json` | per altri programmi, formato stabile `apernix-report/1` |
+
+L'HTML è un file unico, senza JavaScript né risorse esterne (si apre anche offline), con chiaro e
+scuro automatici; tutto il testo che arriva dal sito analizzato viene neutralizzato e la pagina vieta
+l'esecuzione di script. Da un `report.json` si può rigenerare tutto:
+`apernix report CARTELLA/report.json --format html > report.html`.
 
 ## Regola dello scope
 

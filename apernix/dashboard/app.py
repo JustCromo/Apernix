@@ -12,6 +12,7 @@ import dataclasses
 import os
 import queue
 import threading
+import time
 
 from apernix import discover as disc
 from apernix import report as rpt
@@ -29,7 +30,7 @@ from apernix.dashboard.state import (
     TargetRow,
 )
 from apernix.dashboard.view import Canvas
-from apernix.engine import FLOW, Event, run_scan
+from apernix.engine import FLOW, Event, mmss, run_scan
 from apernix.i18n import t
 from apernix.scope import ScopeError, load_scope, parse_target_url
 from apernix.scope_write import add_target
@@ -76,17 +77,33 @@ def phase_detail(s, pid: str) -> Detail:
     return Detail(t(f"dash.phase.{pid}"), lines)
 
 
+def open_in_browser(path: str) -> bool:
+    """xdg-open in un processo separato: niente shell, uscita scartata (non sporca lo schermo)."""
+    import shutil
+    import subprocess
+    exe = shutil.which("xdg-open")
+    if exe is None:
+        return False
+    try:
+        subprocess.Popen([exe, os.path.abspath(path)], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, start_new_session=True)
+    except OSError:
+        return False
+    return True
+
+
 class Controller:
     """Logica della dashboard, indipendente da curses (così si prova con i test)."""
 
     def __init__(self, scope_path: str, out_dir: str, spawn=None, finder=disc.discover, tls=tlsinfo,
-                 probe=disc.probe, redraw=lambda: None) -> None:
+                 probe=disc.probe, redraw=lambda: None, opener=None) -> None:
         self.scope_path, self.out_dir = scope_path, out_dir
         self.state = DashState()
         self.events: queue.Queue = queue.Queue()
         self.cancel = threading.Event()
         self.spawn = spawn or (lambda fn: threading.Thread(target=fn, daemon=True).start())
         self.finder, self.tls, self.probe, self.redraw = finder, tls, probe, redraw
+        self.opener = opener or open_in_browser
         self.discovered: list = []
         self.quit = False
         self.last_targets: dict = {}
@@ -192,6 +209,7 @@ class Controller:
         out_dir, cancel, events = self.out_dir, self.cancel, self.events
 
         def work():
+            started = time.monotonic()
             client = SafeClient(one)
             res = run_scan(one, client, phases, emit=events.put, cancel=cancel)
             data = {"result": res, "target": tg}
@@ -200,7 +218,10 @@ class Controller:
                 events.put(Event("action", {"text": t("dash.act.report")}))
                 extra = {"fingerprint": res.fingerprint, "services": res.services,
                          "sources": [{"name": k, "status": v} for k, v in res.sources.items()]}
-                doc = rpt.build([tg.url], res.findings, client.requests_made, extra)
+                label = t("dash.profile." + ("full" if len(phases) > 1 else "quick"))
+                meta = {"name": tg.name or tg.host, "profile": label,
+                        "duration": mmss(time.monotonic() - started)}
+                doc = rpt.build([tg.url], res.findings, client.requests_made, extra, meta)
                 try:
                     data["folder"] = rpt.save(doc, out_dir)
                     events.put(Event("phase", {"id": "report", "state": "done", "note": t("dash.note.saved")}))
@@ -324,6 +345,8 @@ class Controller:
             self.start_discovery()
         elif key == "r":
             self.show_report()
+        elif key == "o":
+            self.open_report()
         elif key == "?":
             s.detail = Detail(t("dash.modal.guide"), [(line, "text") for line in t("dash.guide").split("|")])
 
@@ -380,12 +403,25 @@ class Controller:
             else:
                 self.new_target(row.url, row.name)
 
+    def open_report(self) -> None:
+        """Apre report.html nel browser predefinito (xdg-open), senza bloccare la dashboard."""
+        s = self.state
+        path = os.path.join(s.report, "report.html") if s.report else ""
+        if not path or not os.path.isfile(path):
+            self.info(t("dash.modal.report"), [t("dash.report.none")])
+            return
+        if self.opener(path):
+            s.status, s.status_role = t("dash.report.opened"), "ok"
+        else:
+            self.info(t("dash.modal.report"), [t("dash.report.no_browser"), "", os.path.abspath(path)])
+
     def show_report(self) -> None:
         s = self.state
         if not s.report:
             self.info(t("dash.modal.report"), [t("dash.report.none")])
             return
         lines = [[(f"{t('dash.report')}: ", "accent"), (s.report, "ok")], ("", "text"),
+                 [("report.html ", "accent"), (t("dash.report.html"), "text")],
                  [("report.md   ", "accent"), (t("dash.report.md"), "text")],
                  [("report.json ", "accent"), (t("dash.report.json"), "text")]]
         s.detail = Detail(t("dash.modal.report"), lines)
