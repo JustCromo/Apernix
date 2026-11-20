@@ -25,6 +25,16 @@ def doc_with(findings, sources=None, targets=("http://x/",), meta=None):
     return rpt.build(list(targets), findings, 3, extra, meta or {"name": "Lab"})
 
 
+LOGO_TAG = re.compile(r'<img class="logo" src="data:image/png;base64,[A-Za-z0-9+/=]+" alt="" width="72" height="72">')
+
+
+def without_logo(html: str) -> str:
+    """L'unica immagine ammessa è il logo di Apernix incorporato (data URI): tutto il resto deve restare testo."""
+    out, n = LOGO_TAG.subn("", html)
+    assert n <= 1
+    return out
+
+
 class TestHtmlSafety(unittest.TestCase):
     def test_hostile_text_is_escaped(self):
         d = doc_with([f(title=XSS, element=XSS, evidence=[XSS], remediation=XSS, check=XSS[:60], source=XSS)],
@@ -32,7 +42,7 @@ class TestHtmlSafety(unittest.TestCase):
         d["fingerprint"] = [{"technologies": [XSS]}]
         d["services"] = {XSS: [XSS]}
         html = to_html(d)
-        self.assertIsNone(re.search(r"<\s*(script|img)", html, re.I))   # nessun tag vero: solo testo
+        self.assertIsNone(re.search(r"<\s*(script|img)", without_logo(html), re.I))   # nessun tag vero: solo testo
         self.assertNotIn('"><', html.split("</title>")[0].split("<title>")[1])
         self.assertIn("&lt;script&gt;", html)
 
@@ -40,7 +50,7 @@ class TestHtmlSafety(unittest.TestCase):
         html = to_html(doc_with([f()]))
         self.assertIn("Content-Security-Policy", html)
         self.assertIn("default-src 'none'", html)
-        self.assertIsNone(re.search(r'(src|href)="(?!#)', html))       # niente risorse o link esterni
+        self.assertIsNone(re.search(r'(src|href)="(?!#)', without_logo(html)))       # niente risorse o link esterni
         self.assertNotIn("<script", html)
 
     def test_empty_report(self):
@@ -73,6 +83,26 @@ class TestHtmlIntelligence(unittest.TestCase):
         self.assertNotIn("x5.html", table)               # il resto sta nel dettaglio, non nella tabella
         self.assertIn("+7 altre", table)
         self.assertIn("x5.html", html)
+
+    def test_logo_is_embedded_and_csp_allows_only_data_images(self):
+        html = to_html(doc_with([f()]))
+        self.assertIn('src="data:image/png;base64,', html)
+        self.assertIn("img-src data:", html)
+        self.assertNotIn("http://", html.split("<main>")[0])           # nessuna risorsa esterna nell'intestazione
+        self.assertNotIn("<script", html)
+
+    def test_report_works_without_logo(self):
+        from unittest import mock
+
+        import apernix.report_html as rh
+        rh.logo_uri.cache_clear()
+        try:
+            with mock.patch.object(rh.Path, "read_bytes", side_effect=OSError):
+                html = to_html(doc_with([f()]))
+        finally:
+            rh.logo_uri.cache_clear()
+        self.assertNotIn("data:image", html)
+        self.assertIn("APERNIX", html)
 
     def test_verdict_plural(self):
         self.assertIn("1 problema critico", to_html(doc_with([f()])))

@@ -6,6 +6,8 @@ dalla rete E con una password banale). Questi risultati nascono solo se entrambe
 
 from __future__ import annotations
 
+import re
+
 from apernix.i18n import t
 from apernix.models import Finding
 
@@ -23,10 +25,21 @@ def simplify(findings: list[Finding]) -> list[Finding]:
     files = [f for f in findings if f.check == "CFG-DS-0002"]
     if not roots or not files:
         return findings
-    names = [e for e in files[0].evidence if e.startswith("file: ")][:4]
-    for f in roots:
-        f.evidence = [*f.evidence, *(f"Dockerfile senza USER ({n[6:]})" for n in names)]
-    return [f for f in findings if f.check != "CFG-DS-0002"]
+    cfg = files[0]
+    left = []
+    for path in (e[6:] for e in cfg.evidence if e.startswith("file: ")):
+        # Il Dockerfile "db/Dockerfile" appartiene al container che ha "db" nel nome (racoonix-db-1), non agli altri.
+        folder = path.replace("\\", "/").rsplit("/", 2)[-2] if path.count("/") else ""
+        owners = [f for f in roots if folder and folder.lower() in re.split(r"[-_./]", f.element.lower())]
+        for f in owners:
+            f.evidence = [*f.evidence, f"Dockerfile senza USER ({path})"]
+        if not owners:
+            left.append(path)
+    if not left:
+        return [f for f in findings if f is not cfg]
+    cfg.evidence = [cfg.evidence[0], *(f"file: {p}" for p in left)]       # i Dockerfile senza container noto restano
+    cfg.element = left[0] + (" (+ altri file)" if len(left) > 1 else "")
+    return findings
 
 
 def correlate(findings: list[Finding]) -> list[Finding]:

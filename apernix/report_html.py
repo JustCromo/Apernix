@@ -9,7 +9,10 @@ passato da html.escape, e la pagina vieta script e risorse esterne (Content-Secu
 
 from __future__ import annotations
 
+import base64
+from functools import lru_cache
 from html import escape
+from pathlib import Path
 
 from apernix.i18n import t
 from apernix.models import LEVELS, risk_level
@@ -39,6 +42,8 @@ a{color:var(--primary)}
 code,.mono{font-family:ui-monospace,"JetBrains Mono","DejaVu Sans Mono",monospace;font-size:13.5px}
 .top{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;border-bottom:1px solid var(--line);padding-bottom:18px}
 .brand{font:700 15px/1 ui-monospace,monospace;letter-spacing:.18em;color:var(--primary)}
+.top .id{display:flex;align-items:center;gap:16px}
+.top .logo{flex:none;width:72px;height:72px;object-fit:contain}
 .top h1{font-size:30px;margin-top:10px}
 .top .url{color:var(--muted);word-break:break-all}
 .meta{display:flex;gap:18px;flex-wrap:wrap;color:var(--muted);font-size:14px}
@@ -251,11 +256,22 @@ def _matrix(findings: list[dict]) -> str:
             f'<div class="muted small" style="text-align:right">{_e(t("html.matrix.impact"))} →</div></div>')
 
 
+@lru_cache(maxsize=1)
+def logo_uri() -> str:
+    """Il logo come data URI: il report resta un file unico, senza risorse esterne. Se manca, il report esce senza."""
+    try:
+        data = (Path(__file__).parent / "assets" / "logo.png").read_bytes()
+    except OSError:
+        return ""
+    return "data:image/png;base64," + base64.b64encode(data).decode("ascii") if data[:8] == b"\x89PNG\r\n\x1a\n" else ""
+
+
 def _head(doc: dict, name: str) -> list[str]:
     target = (doc["targets"] or ["?"])[0]
     meta = doc.get("meta") if isinstance(doc.get("meta"), dict) else {}
-    out = [f'<header class="top"><div><div class="brand">APERNIX</div><h1>{_e(name)}</h1>'
-           f'<div class="url mono">{_e(target)}</div></div><div class="meta">'
+    logo = f'<img class="logo" src="{logo_uri()}" alt="" width="72" height="72">' if logo_uri() else ""
+    out = [f'<header class="top"><div class="id">{logo}<div><div class="brand">APERNIX</div><h1>{_e(name)}</h1>'
+           f'<div class="url mono">{_e(target)}</div></div></div><div class="meta">'
            f'<span>{_e(t("html.date"))} <b>{_e(doc["generated"].replace("T", " ")[:16])} UTC</b></span>']
     for key, label in (("profile", "html.profile"), ("duration", "html.duration")):
         if meta.get(key):
@@ -417,7 +433,7 @@ def to_html(doc: dict) -> str:
     ok = passed_checks(doc)
     out = [f'<!DOCTYPE html><html lang="it"><head><meta charset="utf-8">'
            f'<meta name="viewport" content="width=device-width,initial-scale=1">'
-           f'<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'">'
+           f'<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; img-src data:">'
            f'<meta name="referrer" content="no-referrer">'
            f'<title>{_e(t("html.title"))} · {_e(name)}</title>'
            f'<style>{css()}</style></head><body><main>']

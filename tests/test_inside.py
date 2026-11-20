@@ -179,14 +179,23 @@ class TestSources(unittest.TestCase):
         self.assertEqual(found[0].element, "app/a.py:3")
 
     def test_root_duplicates_merged(self):
-        ctr = Finding(check="CTR-ROOT", title="root", element="db-1", impact=3, probability=2, source="docker",
-                      evidence=["nessun utente"], remediation="x")
-        cfg = Finding(check="CFG-DS-0002", title="USER", element="db/Dockerfile", impact=4, probability=2,
-                      source="trivy", evidence=["m", "file: db/Dockerfile"], remediation="x")
-        out = correlate.simplify([ctr, cfg])
-        self.assertEqual([f.check for f in out], ["CTR-ROOT"])
-        self.assertTrue(any("db/Dockerfile" in e for e in out[0].evidence))
-        self.assertEqual(len(correlate.simplify([cfg])), 1)       # senza il container resta il Dockerfile
+        def ctr(name):
+            return Finding(check="CTR-ROOT", title="root", element=name, impact=3, probability=2, source="docker",
+                           evidence=["nessun utente"], remediation="x")
+        cfg = Finding(check="CFG-DS-0002", title="USER", element="db/Dockerfile (+ altri file)", impact=4,
+                      probability=2, source="trivy", remediation="x",
+                      evidence=["m", "file: db/Dockerfile", "file: tools/altro/Dockerfile"])
+        caddy, db = ctr("racoonix-caddy-1"), ctr("racoonix-db-1")
+        out = correlate.simplify([caddy, db, cfg])
+        self.assertTrue(any("db/Dockerfile" in e for e in db.evidence))
+        self.assertFalse(any("Dockerfile" in e for e in caddy.evidence))     # niente evidenze sul container sbagliato
+        left = [f for f in out if f.check == "CFG-DS-0002"]                   # resta solo il Dockerfile senza container
+        self.assertEqual(len(left), 1)
+        self.assertEqual(left[0].element, "tools/altro/Dockerfile")
+        only = Finding(check="CFG-DS-0002", title="USER", element="db/Dockerfile", impact=4, probability=2,
+                       source="trivy", evidence=["m", "file: db/Dockerfile"], remediation="x")
+        self.assertEqual([f.check for f in correlate.simplify([ctr("racoonix-db-1"), only])], ["CTR-ROOT"])
+        self.assertEqual(len(correlate.simplify([only])), 1)              # senza container resta il Dockerfile
 
     def test_non_security_rules_ignored(self):
         rows = [{"check_id": "x.batch-import", "path": "/src/a.py", "start": {"line": 1},
