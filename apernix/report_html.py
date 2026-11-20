@@ -104,6 +104,9 @@ td{padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
 tr:last-child td{border-bottom:0}
 td.num{text-align:center;white-space:nowrap}
 td .ev{color:var(--muted);font-size:13px;word-break:break-word}
+td.el{max-width:240px;word-break:break-all;overflow-wrap:anywhere}
+table td:nth-child(3){min-width:200px}
+table td:nth-child(4){max-width:320px}
 .twrap{overflow-x:auto;border-radius:12px}
 details.f{background:var(--surface);border-radius:12px;margin-bottom:10px;border-left:4px solid var(--c)}
 details.f summary{cursor:pointer;list-style:none;padding:14px 18px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
@@ -153,7 +156,9 @@ CATEGORIES = (
 QUICK = ("WEB-HDR-XFO", "WEB-HDR-XCTO", "WEB-HDR-REF", "WEB-HDR-HSTS", "WEB-DISC-", "WEB-CK-", "WEB-EXP-",
          "WEB-LIST-", "WEB-METH-", "NET-DOCKER-API")
 LONG = ("NUC-",)
-PENALTY = {"critical": 30, "high": 15, "medium": 6, "low": 2}
+# (penalità per problema, tetto): più problemi dello stesso livello pesano sempre meno.
+# Senza critici il voto non scende sotto 40 (D): la F è riservata a chi ha problemi critici.
+PENALTY = {"critical": (25, 100), "high": (7, 35), "medium": (2, 20), "low": (0.5, 5)}
 
 
 def category(check: str) -> str:
@@ -182,7 +187,8 @@ def why(f: dict) -> str:
 
 def score(findings: list[dict]) -> tuple[int, str, str]:
     """Voto da 0 a 100 e lettera, come i voti dei test SSL: aiuta a capire al volo."""
-    value = max(0, 100 - sum(PENALTY[f["level"]] for f in findings))
+    count = {lvl: sum(1 for f in findings if f["level"] == lvl) for lvl in PENALTY}
+    value = max(0, round(100 - sum(min(n * PENALTY[lvl][0], PENALTY[lvl][1]) for lvl, n in count.items())))
     for limit, letter, role in ((90, "A", "ok"), (75, "B", "ok"), (60, "C", "medium"), (40, "D", "high")):
         if value >= limit:
             return value, letter, role
@@ -355,8 +361,11 @@ def _table(findings: list[dict]) -> list[str]:
     out.append('<div class="twrap"><table><thead><tr>' +
                "".join(f"<th>{_e(h if h == '#' else t(h))}</th>" for h in heads) + "</tr></thead><tbody>")
     for i, f in enumerate(findings, 1):
-        ev = "<br>".join(_e(e) for e in f["evidence"])
-        out.append(f'<tr><td class="num">{i}</td><td class="mono">{_e(f["element"])}</td>'
+        shown = [e if len(e) <= 110 else e[:109] + "…" for e in f["evidence"][:2]]
+        ev = "<br>".join(_e(e) for e in shown)
+        if len(f["evidence"]) > 2:
+            ev += f'<br><a href="#f{i}">{_e(t("html.more", n=len(f["evidence"]) - 2))}</a>'
+        out.append(f'<tr><td class="num">{i}</td><td class="mono el" title="{_e(f["element"])}">{_e(f["element"])}</td>'
                    f'<td><a href="#f{i}">{_e(f["title"])}</a></td><td><div class="ev">{ev}</div></td>'
                    f'<td>{_e(t("pt." + f["pt"]))}</td><td class="num">{f["impact"]}</td>'
                    f'<td class="num">{f["probability"]}</td><td class="num">{_badge(f)}</td>'
@@ -371,7 +380,8 @@ def _scope(doc: dict) -> list[str]:
     for fp in doc.get("fingerprint", []):
         if isinstance(fp, dict):
             tech += [x for x in fp.get("technologies", []) if isinstance(x, str)]
-    chips = "".join(f'<span class="chip">{_e(x)}</span>' for x in dict.fromkeys(tech)) or \
+    uniq = {x.replace(" (probabile)", "").lower(): x for x in reversed(tech)}      # "Flask (probabile)" = "flask"
+    chips = "".join(f'<span class="chip">{_e(x)}</span>' for x in reversed(list(uniq.values()))) or \
         f'<span class="muted">{_e(t("html.none"))}</span>'
     out.append(f'<div class="box"><h3>{_e(t("report.fingerprint"))}</h3><div class="chips">{chips}</div></div>')
     svc = []

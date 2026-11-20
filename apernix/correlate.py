@@ -16,6 +16,19 @@ def _first(findings: list[Finding], prefixes: tuple[str, ...]) -> list[Finding]:
     return [f for f in findings if f.check.startswith(prefixes)]
 
 
+def simplify(findings: list[Finding]) -> list[Finding]:
+    """Toglie i doppioni: "Dockerfile senza USER" (trivy) e "il container gira come root" (docker) sono lo stesso
+    problema. Resta quello osservato sul container vero; i Dockerfile coinvolti vanno nelle sue evidenze."""
+    roots = [f for f in findings if f.check == "CTR-ROOT"]
+    files = [f for f in findings if f.check == "CFG-DS-0002"]
+    if not roots or not files:
+        return findings
+    names = [e for e in files[0].evidence if e.startswith("file: ")][:4]
+    for f in roots:
+        f.evidence = [*f.evidence, *(f"Dockerfile senza USER ({n[6:]})" for n in names)]
+    return [f for f in findings if f.check != "CFG-DS-0002"]
+
+
 def correlate(findings: list[Finding]) -> list[Finding]:
     out: list[Finding] = []
     exposed = _first(findings, ("NET-DB-EXPOSED", "CTR-DB-PUBLISHED"))

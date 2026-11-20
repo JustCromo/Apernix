@@ -136,7 +136,7 @@ class TestSources(unittest.TestCase):
                     mod.parse(data, *args)
 
     def test_repeated_rule_is_one_finding(self):
-        rows = [{"check_id": "python.django.no-csrf", "path": f"/src/t/{i}.html", "start": {"line": i},
+        rows = [{"check_id": "python.flask.no-csrf", "path": f"/src/t/{i}.html", "start": {"line": i},
                  "extra": {"severity": "WARNING", "message": "Manca csrf_token. Altro testo lungo."}}
                 for i in range(61)]
         found = semgrep.parse(json.dumps({"results": rows}).encode(), "/src")
@@ -144,6 +144,49 @@ class TestSources(unittest.TestCase):
         self.assertIn("+60 altri punti", found[0].element)
         self.assertEqual(found[0].title, "Manca csrf_token.")
         self.assertLessEqual(len(found[0].evidence), 10)
+
+    def test_noise_filtered(self):
+        def row(rule, path, sev="WARNING"):
+            return {"check_id": rule, "path": path, "start": {"line": 1}, "extra": {"severity": sev, "message": "m."}}
+        rows = [row("python.django.security.django-no-csrf-token", "/src/app/t.html"),       # app non Django
+                row("python.lang.security.audit.dynamic-urllib-use-detected", "/src/tools/x.py"),   # script di sviluppo
+                row("python.lang.security.audit.dynamic-urllib-use-detected", "/src/app/a.py", "ERROR"),
+                row("python.flask.security.injection.tainted-url-host", "/src/app/b.py", "ERROR")]
+        found = {f.check: f for f in semgrep.parse(json.dumps({"results": rows}).encode(), "/src")}
+        self.assertEqual(set(found), {"SAST-dynamic-urllib-use-detected", "SAST-tainted-url-host"})
+        audit = found["SAST-dynamic-urllib-use-detected"]
+        self.assertLessEqual(audit.risk, 6)                       # "audit" = da verificare, non vulnerabilità
+        self.assertNotIn("tools", audit.element)
+        self.assertEqual(found["SAST-tainted-url-host"].risk, 12)
+        self.assertEqual(audit.pt, "not_tested")
+
+    def test_django_rules_kept_for_django_projects(self):
+        with tmpdir() as d:
+            with open(os.path.join(d, "manage.py"), "w") as fh:
+                fh.write("# django")
+            rows = [{"check_id": "python.django.security.django-no-csrf-token", "path": os.path.join(d, "a.html"),
+                     "start": {"line": 1}, "extra": {"severity": "WARNING", "message": "m."}}]
+            self.assertEqual(len(semgrep.parse(json.dumps({"results": rows}).encode(), d)), 1)
+
+    def test_bandit_blacklist_lowered_and_dev_dirs_skipped(self):
+        rows = [{"test_id": "B310", "test_name": "blacklist", "issue_text": "url open", "issue_severity": "MEDIUM",
+                 "issue_confidence": "HIGH", "filename": "/src/app/a.py", "line_number": 3},
+                {"test_id": "B310", "test_name": "blacklist", "issue_text": "url open", "issue_severity": "MEDIUM",
+                 "issue_confidence": "HIGH", "filename": "/src/tools/a.py", "line_number": 3}]
+        found = bandit.parse(json.dumps({"results": rows}).encode(), "/src")
+        self.assertEqual(len(found), 1)
+        self.assertLessEqual(found[0].risk, 6)
+        self.assertEqual(found[0].element, "app/a.py:3")
+
+    def test_root_duplicates_merged(self):
+        ctr = Finding(check="CTR-ROOT", title="root", element="db-1", impact=3, probability=2, source="docker",
+                      evidence=["nessun utente"], remediation="x")
+        cfg = Finding(check="CFG-DS-0002", title="USER", element="db/Dockerfile", impact=4, probability=2,
+                      source="trivy", evidence=["m", "file: db/Dockerfile"], remediation="x")
+        out = correlate.simplify([ctr, cfg])
+        self.assertEqual([f.check for f in out], ["CTR-ROOT"])
+        self.assertTrue(any("db/Dockerfile" in e for e in out[0].evidence))
+        self.assertEqual(len(correlate.simplify([cfg])), 1)       # senza il container resta il Dockerfile
 
     def test_non_security_rules_ignored(self):
         rows = [{"check_id": "x.batch-import", "path": "/src/a.py", "start": {"line": 1},

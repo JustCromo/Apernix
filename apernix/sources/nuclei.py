@@ -27,6 +27,10 @@ def build_argv(url: str, rate: float, timeout: float) -> list[str]:
     ]
 
 
+# Template informativi che descrivono un'impostazione debole: diventano problemi bassi, non tecnologie.
+INFO_FINDINGS = {"ssh-password-auth": (2, 2), "ssh-sha1-hmac-algo": (2, 1)}
+
+
 def scan(url: str, rate: float, timeout: float, max_time: float = 900, tick=None) -> ToolResult:
     return run_tool(build_argv(url, rate, timeout), lambda path: ["-o", path], max_time, tick)
 
@@ -55,10 +59,18 @@ def parse(data: bytes) -> tuple[list[Finding], list[str]]:
         name = _s(info.get("name")) or tid
         where = _s(item.get("matched-at"), 300) or _s(item.get("host"), 300)
         if sev not in SEVERITY:
-            matcher = _s(item.get("matcher-name"), 64)
-            label = f"{name}: {matcher}" if matcher else name
-            if label not in tech and len(tech) < 50:
-                tech.append(label)
+            if tid in INFO_FINDINGS and (tid, where) not in seen:
+                seen.add((tid, where))
+                impact, prob = INFO_FINDINGS[tid]
+                found.append(Finding(
+                    check=f"NUC-{tid}"[:64], title=t(f"NUC-{tid}.title"), element=where or "?", impact=impact,
+                    probability=prob, source=SOURCE, evidence=[f"template {tid} ({sev or 'info'})",
+                                                                  f"matched-at: {where}"],
+                    remediation=t(f"NUC-{tid}.fix"), pt="confirmed"))
+            elif tid == "tech-detect":                  # solo le tecnologie vere, non i nomi dei template
+                label = _s(item.get("matcher-name"), 64)
+                if label and label not in tech and len(tech) < 50:
+                    tech.append(label)
             continue
         if (tid, where) in seen:
             continue

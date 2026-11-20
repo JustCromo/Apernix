@@ -52,9 +52,27 @@ class TestHtmlSafety(unittest.TestCase):
 class TestHtmlIntelligence(unittest.TestCase):
     def test_score_and_grade(self):
         self.assertEqual(score([]), (100, "A", "ok"))
-        lows = [{"level": "low"}] * 8
-        self.assertEqual(score(lows)[1], "B")
+        mediums = [{"level": "medium"}] * 8
+        self.assertEqual(score(mediums)[1], "B")
         self.assertEqual(score([{"level": "critical"}] * 4)[:2], (0, "F"))
+
+    def test_score_without_critical_is_never_f(self):
+        many = [{"level": "high"}] * 50 + [{"level": "medium"}] * 50 + [{"level": "low"}] * 50
+        value, letter, _ = score(many)
+        self.assertEqual((value, letter), (40, "D"))
+        # il caso reale: 4 alti, 8 medi, 4 bassi non devono dare 0
+        real = [{"level": "high"}] * 4 + [{"level": "medium"}] * 8 + [{"level": "low"}] * 4
+        self.assertGreater(score(real)[0], 40)
+
+    def test_table_is_compact(self):
+        long_ev = [f"file: app/templates/x{i}.html:{i}" for i in range(9)]
+        html = to_html(doc_with([f(evidence=long_ev)]))
+        table = html[html.index("<table>"):html.index("</table>")]
+        self.assertIn("x0.html", table)
+        self.assertIn("x1.html", table)
+        self.assertNotIn("x5.html", table)               # il resto sta nel dettaglio, non nella tabella
+        self.assertIn("+7 altre", table)
+        self.assertIn("x5.html", html)
 
     def test_verdict_plural(self):
         self.assertIn("1 problema critico", to_html(doc_with([f()])))

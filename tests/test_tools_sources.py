@@ -131,7 +131,17 @@ class TestNuclei(unittest.TestCase):
         crit = [f for f in found if "41773" in f.check][0]
         self.assertEqual(crit.level, "critical")
         self.assertTrue(any("cve-2021-41773" in e for e in crit.evidence))
-        self.assertEqual(tech, ["Wappalyzer: flask"])
+        self.assertEqual(tech, ["flask"])        # solo la tecnologia, non il nome del template
+
+    def test_ssh_info_templates_become_low_findings(self):
+        rows = [{"template-id": "ssh-password-auth", "info": {"name": "SSH Password-based Authentication",
+                                                              "severity": "info"}, "matched-at": "h:22"},
+                {"template-id": "ssh-auth-methods", "info": {"name": "SSH Auth Methods", "severity": "info"},
+                 "matched-at": "h:22"}]
+        found, tech = nuclei.parse("\n".join(json.dumps(x) for x in rows).encode())
+        self.assertEqual([f.check for f in found], ["NUC-ssh-password-auth"])
+        self.assertEqual(found[0].level, "low")
+        self.assertEqual(tech, [])                              # i nomi dei template non sono tecnologie
 
     def test_duplicates_and_flood(self):
         line = json.dumps({"template-id": "x", "info": {"name": "\x1b[31mevil", "severity": "high"},

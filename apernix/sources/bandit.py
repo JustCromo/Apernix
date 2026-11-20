@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 from apernix.models import Finding
+from apernix.sources.filters import is_dev_path
 from apernix.sources.semgrep import _s, group, rel
 from apernix.tools import ToolResult, run_tool
 
@@ -32,10 +33,17 @@ def parse(data: bytes, src: str) -> list[Finding]:
         if not isinstance(item, dict):
             continue
         tid = _s(item.get("test_id"), 12) or "B000"
-        where = f"{rel(_s(item.get('filename'), 300), src)}:{_s(item.get('line_number'), 8)}"
+        path = rel(_s(item.get("filename"), 300), src)
+        if is_dev_path(path):
+            continue
+        where = f"{path}:{_s(item.get('line_number'), 8)}"
+        impact = LEVEL.get(_s(item.get("issue_severity")).upper(), 2)
+        prob = LEVEL.get(_s(item.get("issue_confidence")).upper(), 2)
+        name = _s(item.get("test_name"), 60)
+        note = ""
+        if name.startswith("blacklist"):                  # elenco di funzioni "da guardare", non una falla certa
+            impact, prob, note = min(impact, 3), min(prob, 2), " - segnale da verificare a mano"
         entries.append({
             "check": f"SAST-{tid}", "title": _s(item.get("issue_text"), 200) or tid, "where": where,
-            "impact": LEVEL.get(_s(item.get("issue_severity")).upper(), 2),
-            "prob": LEVEL.get(_s(item.get("issue_confidence")).upper(), 2),
-            "rule": f"test bandit {tid} ({_s(item.get('test_name'), 60)})"})
+            "impact": impact, "prob": prob, "rule": f"test bandit {tid} ({name}){note}"})
     return group(entries, SOURCE)

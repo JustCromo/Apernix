@@ -23,7 +23,7 @@ from urllib.parse import urlsplit
 import requests
 
 from apernix import fingerprint as fpr
-from apernix.correlate import correlate
+from apernix.correlate import correlate, simplify
 from apernix.i18n import t
 from apernix.inside import containers, database, logs
 from apernix.inside.transport import make_transport, private_tmp
@@ -115,6 +115,7 @@ class Run:
         except Cancelled:
             self.res.cancelled = True
         self.add(correlate(self.res.findings))
+        self.res.findings = simplify(self.res.findings)
         return self.res
 
     def _targets(self) -> None:

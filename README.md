@@ -36,6 +36,22 @@ Impatto e probabilità vanno da 1 a 5, **rischio = impatto × probabilità** (1-
 La probabilità tiene conto del contesto: lo stesso problema (per esempio HTTP in chiaro) pesa meno su `127.0.0.1`
 che su Internet.
 
+**Voto (A-F).** Parte da 100 e scende per ogni problema, ma con un tetto per livello (alti -7 ciascuno fino a -35,
+medi -2 fino a -20, bassi -0,5 fino a -5, critici -25 ciascuno): tanti problemi dello stesso tipo non azzerano il voto.
+La F è riservata a chi ha problemi critici.
+
+**Esito PT.** `confermato` = il fatto è stato osservato davvero (una risposta del sito, la configurazione letta dal
+container o dal database); `non testato` = segnalato da analisi statica del codice o delle dipendenze, non provato.
+
+### Come si riducono i falsi allarmi
+
+- L'analisi del codice ignora le cartelle di strumenti e documentazione al primo livello (`tools`, `scripts`, `docs`,
+  `examples`, `build`, `dist`, `vendor`...) e i test: non sono l'applicazione in produzione.
+- Le regole Django di semgrep sono scartate se il progetto non usa Django.
+- Le regole "audit" (e le "blacklist" di bandit) indicano un punto da guardare, non una falla certa: rischio ridotto e
+  nota "da verificare a mano" nelle evidenze.
+- Lo stesso problema trovato da due fonti (Dockerfile senza `USER` e container che gira come root) compare una sola volta.
+
 ## Requisiti
 
 - **Linux** con **Python 3.11 o più recente** e il modulo `venv`. Provato su Arch con Python 3.13 e 3.14.
@@ -216,7 +232,7 @@ tutto il testo che arriva dall'applicazione analizzata.
 - L'analisi del database supporta **PostgreSQL** in Docker; MySQL/MariaDB e database non containerizzati sono futuri.
 - La **modalità sistema** (analisi della macchina) è demandata a Erinix e Vulpnix.
 - Solo Linux; interfaccia solo in italiano per ora.
-- semgrep può dare falsi positivi: ogni risultato indica la regola e il punto del codice da verificare a mano.
+- semgrep può dare falsi positivi: ogni risultato indica la regola e il punto del codice da verificare a mano. Le cartelle escluse (vedi sopra) non vengono analizzate: se l'app vive in una di esse, il codice non viene visto.
 
 ## Funzionalità future
 

@@ -7,6 +7,7 @@ import os
 
 from apernix.i18n import t
 from apernix.models import Finding
+from apernix.sources.filters import is_audit_rule, is_dev_path, uses_django
 from apernix.tools import ToolResult, run_tool
 
 SOURCE = "semgrep"
@@ -69,7 +70,7 @@ def group(entries: list[dict], source: str) -> list[Finding]:
         out.append(Finding(
             check=check, title=first["title"], element=element,
             impact=max(e["impact"] for e in items), probability=max(e["prob"] for e in items), source=source,
-            evidence=evidence, pt="not_applicable", remediation=t("SAST.fix")))
+            evidence=evidence, pt="not_tested", remediation=t("SAST.fix")))
     out.sort(key=lambda f: -f.risk)
     return out[:MAX_FINDINGS]
 
@@ -83,6 +84,7 @@ def parse(data: bytes, src: str) -> list[Finding]:
     if not isinstance(results, list):
         raise ValueError("json")
     entries = []
+    django = uses_django(src)
     for item in results[:5000]:
         if not isinstance(item, dict):
             continue
@@ -94,10 +96,16 @@ def parse(data: bytes, src: str) -> list[Finding]:
         start = item.get("start") if isinstance(item.get("start"), dict) else {}
         rule = _s(item.get("check_id"), 200).split(".")[-1]
         path = rel(_s(item.get("path"), 300), src)
-        if not rule or not path:
+        if not rule or not path or is_dev_path(path):
+            continue
+        check_id = _s(item.get("check_id"), 200)
+        if ".django." in check_id and not django:         # regole Django su un'app che non usa Django: falso allarme
             continue
         impact, prob = SEVERITY.get(_s(extra.get("severity")).upper(), (2, 2))
+        note = ""
+        if is_audit_rule(check_id):                       # segnale da verificare, non vulnerabilità confermata
+            impact, prob, note = min(impact, 3), min(prob, 2), " (segnale da verificare a mano)"
         entries.append({"check": f"SAST-{rule}"[:64], "title": first_sentence(_s(extra.get("message"), 400)) or rule,
                         "where": f"{path}:{_s(start.get('line'), 8)}", "impact": impact, "prob": prob,
-                        "rule": f"regola {_s(item.get('check_id'), 150)}"})
+                        "rule": f"regola {_s(item.get('check_id'), 150)}{note}"})
     return group(entries, SOURCE)

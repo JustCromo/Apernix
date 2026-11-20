@@ -9,6 +9,7 @@ import json
 
 from apernix.i18n import t
 from apernix.models import Finding
+from apernix.sources.filters import is_dev_path
 from apernix.sources.semgrep import _s
 from apernix.tools import ToolResult, run_tool
 
@@ -43,6 +44,8 @@ def parse(data: bytes) -> list[Finding]:
         if not isinstance(res, dict):
             continue
         target = _s(res.get("Target"), 200)
+        if is_dev_path(target):
+            continue
         for v in _list(res.get("Vulnerabilities")):
             if not isinstance(v, dict):
                 continue
@@ -58,7 +61,7 @@ def parse(data: bytes) -> list[Finding]:
             deps.append(Finding(
                 check=f"DEP-{vid}"[:64], title=f"{pkg} {ver}: {_s(v.get('Title'), 120) or vid}",
                 element=f"{pkg} {ver}", impact=impact, probability=prob, source=SOURCE,
-                evidence=ev, pt="not_applicable",
+                evidence=ev, pt="not_tested",
                 remediation=t("DEP.fix_to", version=fixed) if fixed else t("DEP.fix"),
             ))
         for m in _list(res.get("Misconfigurations")):
@@ -68,6 +71,7 @@ def parse(data: bytes) -> list[Finding]:
             if sev not in SEVERITY or _s(m.get("Status")).upper() == "PASS":
                 continue
             impact, prob = SEVERITY[sev]
+            prob = min(prob, 2)                         # configurazione statica: indebolisce, non è uno sfruttamento
             check = f"CFG-{_s(m.get('ID'), 40)}"[:64]
             if check in cfg_seen:                       # stessa regola su più file: un solo problema
                 prev = cfg_seen[check]
@@ -80,7 +84,7 @@ def parse(data: bytes) -> list[Finding]:
                 check=check, title=_s(m.get("Title"), 200) or "?", element=target,
                 impact=impact, probability=prob, source=SOURCE,
                 evidence=[_s(m.get("Message"), 250) or _s(m.get("ID"), 40), f"file: {target}"],
-                pt="not_applicable", remediation=_s(m.get("Resolution"), 400) or t("CFG.fix"))
+                pt="not_tested", remediation=_s(m.get("Resolution"), 400) or t("CFG.fix"))
             other.append(cfg_seen[check])
         for sc in _list(res.get("Secrets")):
             if not isinstance(sc, dict):
@@ -90,7 +94,7 @@ def parse(data: bytes) -> list[Finding]:
                 check=f"SEC-{_s(sc.get('RuleID'), 40)}"[:64], title=_s(sc.get("Title"), 120) or t("SEC.title"),
                 element=where, impact=5, probability=4, source=SOURCE,
                 evidence=[f"regola {_s(sc.get('RuleID'), 40)}", f"file: {where}", t("SEC.value_hidden")],
-                pt="not_applicable", remediation=t("SEC.fix"),
+                pt="not_tested", remediation=t("SEC.fix"),
             ))
     key = lambda f: -f.risk                                              # noqa: E731
     return sorted(deps, key=key)[:MAX_DEPS] + sorted(other, key=key)[:MAX_OTHER]

@@ -17,7 +17,7 @@ SEP = "\x1f"
 
 def _f(check: str, element: str, impact: int, prob: int, evidence: list[str]) -> Finding:
     return Finding(check=check, title=t(f"{check}.title"), element=element, impact=impact, probability=prob,
-                   source=SOURCE, evidence=evidence, pt="not_applicable", remediation=t(f"{check}.fix"))
+                   source=SOURCE, evidence=evidence, pt="confirmed", remediation=t(f"{check}.fix"))
 
 
 def _loopback(address: str) -> bool:
