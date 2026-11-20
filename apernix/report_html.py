@@ -457,8 +457,15 @@ def _scope(doc: dict) -> list[str]:
     return out
 
 
+WATERMARK = ("body::after{content:\"\";position:fixed;inset:0;z-index:5;pointer-events:none;"
+             "background:url(%s) center/min(62vmin,620px) no-repeat;opacity:.09;filter:blur(5px)}"
+             "@media print{body::after{display:none}}")
+
+
 def css() -> str:
-    return CSS.replace("%(light)s", _vars(LIGHT)).replace("%(dark)s", _vars(DARK)).replace("%%", "%")
+    """Il logo in filigrana è fisso al centro della finestra: resta lì mentre si scorre (data URI, nessun file esterno)."""
+    base = CSS.replace("%(light)s", _vars(LIGHT)).replace("%(dark)s", _vars(DARK)).replace("%%", "%")
+    return base + (WATERMARK % logo_uri() if logo_uri() else "")
 
 
 def to_html(doc: dict) -> str:

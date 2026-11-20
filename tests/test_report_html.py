@@ -172,5 +172,15 @@ class TestFolders(unittest.TestCase):
             self.assertNotIn("\x1b", d["meta"]["name"])
 
 
+class TestWatermark(unittest.TestCase):
+    def test_logo_watermark_is_fixed_and_embedded(self):
+        from apernix import report_html
+        css = report_html.css()
+        self.assertIn("position:fixed", css.split("body::after")[1])
+        self.assertIn("url(data:image/png;base64,", css)
+        self.assertNotIn("http", css.split("body::after")[1])
+
+
+
 if __name__ == "__main__":
     unittest.main()
