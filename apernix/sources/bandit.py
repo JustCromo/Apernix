@@ -40,10 +40,11 @@ def parse(data: bytes, src: str) -> list[Finding]:
         impact = LEVEL.get(_s(item.get("issue_severity")).upper(), 2)
         prob = LEVEL.get(_s(item.get("issue_confidence")).upper(), 2)
         name = _s(item.get("test_name"), 60)
-        note = ""
-        if name.startswith("blacklist"):                  # elenco di funzioni "da guardare", non una falla certa
+        note, signal = "", name.startswith("blacklist")
+        if signal:                                        # elenco di funzioni "da guardare", non una falla certa
             impact, prob, note = min(impact, 3), min(prob, 2), " - segnale da verificare a mano"
         entries.append({
             "check": f"SAST-{tid}", "title": _s(item.get("issue_text"), 200) or tid, "where": where,
-            "impact": impact, "prob": prob, "rule": f"test bandit {tid} ({name}){note}"})
+            "impact": impact, "prob": prob, "signal": signal,
+            "rule": f"test bandit {tid} ({name}){note}"})
     return group(entries, SOURCE)

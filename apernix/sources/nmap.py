@@ -67,9 +67,9 @@ def parse(xml_data: bytes) -> list[dict]:
     return out
 
 
-def _f(check: str, element: str, impact: int, prob: int, evidence: list[str]) -> Finding:
+def _f(check: str, element: str, impact: int, prob: int, evidence: list[str], scored: bool = True) -> Finding:
     return Finding(check=check, title=t(f"{check}.title"), element=element, impact=impact,
-                   probability=prob, source=SOURCE, evidence=evidence,
+                   probability=prob, source=SOURCE, evidence=evidence, scored=scored,
                    pt="confirmed",       # la porta ha risposto davvero a nmap
                    remediation=t(f"{check}.fix"))
 
@@ -90,7 +90,10 @@ def findings(host: str, ports: list[dict], web_ports: list[int]) -> list[Finding
             out.append(_f("NET-DB-EXPOSED", el, 5, 4, [describe(p)]))
         elif name in CLEARTEXT or p["port"] in CLEARTEXT.values():
             out.append(_f("NET-CLEARTEXT", el, 4, 3, [describe(p)]))
-    others = [describe(p) for p in ports if p["port"] not in web_ports]
+    same_site = 443 in web_ports            # la porta 80 di chi serve HTTPS su 443 è lo stesso server web
+    others = [describe(p) for p in ports if p["port"] not in web_ports
+              and not (same_site and p["port"] == 80 and p["service"].lower().startswith("http"))]
     if others:
-        out.append(_f("NET-SURFACE", host, 2, 2, others))
+        # Servizi della macchina (SSH, ecc.): vanno guardati, ma sono compito di Erinix/Vulpnix e non pesano sul voto.
+        out.append(_f("NET-SURFACE", host, 2, 2, others, scored=False))
     return out

@@ -38,6 +38,17 @@ def query(tr: Transport, cfg: Internal, sql: str):
     return rows
 
 
+def active_roles(tr: Transport, cfg: Internal) -> set[str] | None:
+    """I ruoli con cui l'app è davvero connessa al database in questo momento (pg_stat_activity).
+    L'utente indicato nello scope è quello con cui Apernix legge, di solito il proprietario: non è detto
+    che sia quello dell'app. None = non verificabile (query fallita)."""
+    rows = query(tr, cfg, "SELECT DISTINCT usename FROM pg_stat_activity WHERE datname = current_database() "
+                          "AND usename IS NOT NULL AND pid <> pg_backend_pid() AND backend_type = 'client backend'")
+    if rows is None:
+        return None
+    return {r[0][:63] for r in rows if r and r[0]}
+
+
 def run(tr: Transport, cfg: Internal):
     """Restituisce (problemi, motivo dell'errore o '')."""
     el = f"{cfg.db_container}/{cfg.db_name}"
@@ -46,6 +57,7 @@ def run(tr: Transport, cfg: Internal):
     if roles is None:
         return [], "failed"
     out: list[Finding] = []
+    active = active_roles(tr, cfg) or set()      # vuoto = nessuna connessione visibile: non si sa chi usa l'app
     for row in roles:
         if len(row) < 6:
             continue
@@ -53,11 +65,19 @@ def run(tr: Transport, cfg: Internal):
         sup, crole, cdb, repl, login = (x == "t" for x in row[1:6])
         if not login:
             continue
-        if name == cfg.db_user and sup:
+        used_by_app = name in active if active else name == cfg.db_user
+        if sup and active and name in active:
             out.append(_f("DB-APP-SUPERUSER", f"{el} ({name})", 5, 3, [t("ev.db.app_super", role=name)]))
+        elif sup and active:      # superuser che l'app NON usa (tipico: il proprietario per le migrazioni)
+            out.append(_f("DB-OTHER-SUPERUSER", f"{el} ({name})", 4, 1,
+                          [t("ev.db.other_super", role=name), t("ev.db.not_connected")]))
+        elif sup and name == cfg.db_user:    # nessuna connessione visibile: non si può dire che sia il ruolo dell'app
+            f = _f("DB-APP-SUPERUSER", f"{el} ({name})", 4, 2, [t("ev.db.app_super_guess", role=name)])
+            f.pt = "not_tested"
+            out.append(f)
         elif sup:
             out.append(_f("DB-OTHER-SUPERUSER", f"{el} ({name})", 4, 2, [t("ev.db.other_super", role=name)]))
-        elif name == cfg.db_user and (crole or cdb or repl):
+        elif used_by_app and (crole or cdb or repl):
             flags = ", ".join(x for x, on in (("CREATEROLE", crole), ("CREATEDB", cdb), ("REPLICATION", repl)) if on)
             out.append(_f("DB-APP-PRIV", f"{el} ({name})", 3, 2, [t("ev.db.app_priv", role=name, flags=flags)]))
     listen = query(tr, cfg, "SHOW listen_addresses")

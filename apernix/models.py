@@ -39,6 +39,7 @@ class Finding:
     evidence: list[str] = field(default_factory=list)
     pt: str = "not_tested"
     remediation: str = ""
+    scored: bool = True   # False: segnale da verificare o problema della macchina; elencato ma fuori da voto e conteggi
 
     def __post_init__(self) -> None:
         self.impact = _scale(self.impact, "impact")
@@ -79,4 +80,4 @@ class Finding:
                 raise ValueError("tipo non valido")
         if not isinstance(d["evidence"], list) or not all(isinstance(e, str) for e in d["evidence"]):
             raise ValueError("evidenze non valide")
-        return cls(**{k: d[k] for k in keys})
+        return cls(**{k: d[k] for k in keys}, scored=d.get("scored") is not False)

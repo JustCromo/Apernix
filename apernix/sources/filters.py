@@ -7,6 +7,7 @@ l'applicazione in produzione (script di sviluppo) o il suo framework (regole Dja
 from __future__ import annotations
 
 import os
+import re
 
 # Cartelle di primo livello che contengono strumenti di sviluppo, non l'applicazione in produzione.
 DEV_DIRS = frozenset({"tools", "scripts", "script", "docs", "doc", "examples", "example", "samples",
@@ -43,3 +44,41 @@ def uses_django(src: str, max_depth: int = 3) -> bool:
 def is_audit_rule(rule_id: str) -> bool:
     """Le regole 'audit' segnalano un punto da guardare, non una vulnerabilità confermata."""
     return ".audit." in rule_id
+
+
+_SUPPRESS = re.compile(r"(#|//)\s*(nosec|nosem(grep)?)\b", re.I)
+MAX_SOURCE_BYTES = 1_000_000
+
+
+class Suppressions:
+    """Rispetta `# nosec` e `# nosemgrep`: se lo sviluppatore ha annotato il punto dopo averlo valutato,
+    segnalarlo di nuovo è rumore. Legge solo file dentro la cartella analizzata."""
+
+    def __init__(self, src: str):
+        self.root = os.path.realpath(src)
+        self.cache: dict[str, list[str]] = {}
+
+    def _lines(self, rel_path: str) -> list[str]:
+        if rel_path in self.cache:
+            return self.cache[rel_path]
+        lines: list[str] = []
+        full = os.path.realpath(os.path.join(self.root, rel_path))
+        if full.startswith(self.root + os.sep):
+            try:
+                with open(full, "rb") as fh:
+                    lines = fh.read(MAX_SOURCE_BYTES).decode("utf-8", "replace").splitlines()
+            except OSError:
+                lines = []
+        self.cache[rel_path] = lines
+        return lines
+
+    def covers(self, rel_path: str, start: int, end: int | None = None) -> bool:
+        lines = self._lines(rel_path)
+        if not lines or start < 1:
+            return False
+        last = min(max(end or start, start), start + 8)
+        if any(_SUPPRESS.search(line) for line in lines[start - 1:last]):          # sul punto stesso
+            return True
+        # la riga sopra conta solo se è un commento a sé: un'annotazione in fondo a un'altra istruzione non si estende
+        above = lines[start - 2].strip() if start >= 2 and start - 2 < len(lines) else ""
+        return above.startswith(("#", "//")) and bool(_SUPPRESS.search(above))

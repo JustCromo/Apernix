@@ -131,6 +131,8 @@ La probabilità tiene conto del contesto: lo stesso problema (per esempio HTTP i
 
 Parte da 100 e scende per ogni problema, ma con un tetto per livello (alti -7 ciascuno fino a -35, medi -2 fino a -20, bassi -0,5 fino a -5, critici -25 ciascuno): tanti problemi dello stesso tipo non azzerano il voto. **La F è riservata a chi ha problemi critici.**
 
+Contano solo i problemi dell'applicazione: i segnali da verificare a mano e i servizi della macchina sono elencati nel report ma restano fuori dal voto, dai conteggi e dal codice di uscita.
+
 ### L'esito della verifica (PT)
 
 | Esito | Significa |
@@ -145,7 +147,13 @@ Parte da 100 e scende per ogni problema, ma con un tetto per livello (alti -7 ci
 - L'analisi del codice ignora le cartelle di strumenti e documentazione al primo livello (`tools`, `scripts`, `docs`, `examples`, `build`, `dist`, `vendor`...) e i test: non sono l'applicazione in produzione.
 - Le regole Django di semgrep sono scartate se il progetto non usa Django.
 - Le regole "audit" (e le "blacklist" di bandit) indicano un punto da guardare, non una falla certa: rischio ridotto e nota "da verificare a mano" nelle evidenze.
-- Lo stesso problema trovato da due fonti (Dockerfile senza `USER` e container che gira come root) compare una sola volta.
+- Lo stesso problema trovato da due fonti (Dockerfile senza `USER` e container che gira come root) compare una sola volta, sul container giusto.
+- Rispetta le annotazioni degli sviluppatori `# nosec` e `# nosemgrep`: un punto già valutato non viene segnalato di nuovo.
+- **Guarda cosa succede davvero, non solo la configurazione**: l'utente del database è quello con cui l'app è *connessa ora* (`pg_stat_activity`), non il proprietario usato dalle migrazioni; l'utente di un container è quello del *processo in esecuzione* (`docker top`), perché molte immagini partono come root e poi passano a un utente normale (PostgreSQL, per esempio). Se non riesce a verificarlo lo dice nell'esito (`non testato`) e abbassa il rischio.
+- **Tiene conto delle difese già presenti**: `cap_drop: ALL`, filesystem in sola lettura, `no-new-privileges` e utente non root abbassano la probabilità di un problema del container, e le evidenze le elencano.
+- **Distingue l'app dalla macchina**: i servizi della macchina (SSH, altre porte) sono elencati in una categoria a parte e **non contano nel voto** (sono compito di Erinix e Vulpnix). La porta 80 di un sito servito in HTTPS sulla 443 è lo stesso server e non viene segnalata.
+- **I segnali "da verificare a mano"** (regole *audit* di semgrep, *blacklist* di bandit) sono elencati ma **non contano nel voto** finché non sono confermati: nel report hanno l'etichetta "non conta nel voto".
+- **Scarta le contraddizioni**: "il database ascolta su tutte le interfacce" non viene segnalato se i controlli sui container mostrano che il database non è raggiungibile da fuori.
 
 ---
 
@@ -212,7 +220,7 @@ transport = "local"                         # "local" = questa macchina, "ssh" =
 path = "/home/ivan/Projects/Racoonix"       # cartella con il codice dell'app
 containers = ["racoonix-app-1", "racoonix-db-1"]   # container Docker da controllare (configurazione e log)
 db_container = "racoonix-db-1"              # container PostgreSQL
-db_user = "racoonix"                        # utente del database usato dall'app
+db_user = "racoonix"                        # ruolo con cui Apernix legge il database (di solito quello del compose)
 db_name = "racoonix"
 ```
 

@@ -148,6 +148,7 @@ CATEGORIES = (
     ("secrets", ("SEC-", "LOG-SECRETS")),
     ("code", ("SAST-",)),
     ("deps", ("DEP-",)),
+    ("host", ("NET-SURFACE", "NUC-ssh-")),
     ("config", ("CFG-", "CTR-", "DB-")),
     ("logs", ("LOG-",)),
     ("exposure", ("WEB-EXP-", "WEB-LIST-", "WEB-ERR-")),
@@ -192,7 +193,7 @@ def why(f: dict) -> str:
 
 def score(findings: list[dict]) -> tuple[int, str, str]:
     """Voto da 0 a 100 e lettera, come i voti dei test SSL: aiuta a capire al volo."""
-    count = {lvl: sum(1 for f in findings if f["level"] == lvl) for lvl in PENALTY}
+    count = {lvl: sum(1 for f in findings if f["level"] == lvl and f.get("scored", True)) for lvl in PENALTY}
     value = max(0, round(100 - sum(min(n * PENALTY[lvl][0], PENALTY[lvl][1]) for lvl, n in count.items())))
     for limit, letter, role in ((90, "A", "ok"), (75, "B", "ok"), (60, "C", "medium"), (40, "D", "high")):
         if value >= limit:
@@ -288,12 +289,13 @@ def _hero(doc: dict, ok_count: int) -> list[str]:
     vlevel, vtitle, vtext = _verdict(doc)
     value, letter, role = score(findings)
     vcolor = "var(--ok)" if vlevel == "ok" else f"var(--{vlevel})"
-    total = sum(f["risk"] for f in findings)
+    counted = [f for f in findings if f.get("scored", True)]
+    total = sum(f["risk"] for f in counted)
     insight = ""
-    if len(findings) >= 3 and total:
+    if len(counted) >= 3 and total:
         # quanto rischio si toglie sistemando i primi problemi: dice dove conviene mettere le mani
-        n = min(3, len(findings) - 1)
-        pct = round(100 * sum(f["risk"] for f in findings[:n]) / total)
+        n = min(3, len(counted) - 1)
+        pct = round(100 * sum(f["risk"] for f in counted[:n]) / total)
         insight = t("html.insight.top", n=n, pct=pct)
     key = "html.insight.ok.good" if letter in ("A", "B") else "html.insight.ok"
     good = t(key, n=ok_count, total=ok_count + len({f["check"] for f in findings})) if ok_count else ""
@@ -306,8 +308,15 @@ def _hero(doc: dict, ok_count: int) -> list[str]:
     for lvl in LEVEL_ORDER:
         n = doc["summary"].get(lvl, 0)
         out.append(f'<span class="count lv-{lvl}{"" if n else " zero"}"><b>{n}</b> {_e(t("html.count." + lvl))}</span>')
-    out.append("</div></div></section>")
+    out.append("</div>")
+    if doc.get("unscored"):
+        out.append(f'<p class="muted small">{_e(t("html.unscored", n=doc["unscored"]))}</p>')
+    out.append("</div></section>")
     return out
+
+
+def _unscored_tag(f: dict) -> str:
+    return "" if f.get("scored", True) else f'<span class="tag">{_e(t("html.unscored.tag"))}</span>'
 
 
 def _plan(findings: list[dict]) -> list[str]:
@@ -352,7 +361,7 @@ def _topics(findings: list[dict]) -> list[str]:
             w = why(f)
             out.append(
                 f'<details class="f lv-{_e(f["level"])}" id="f{i}"{" open" if f["level"] in ("critical", "high") else ""}>'
-                f'<summary>{_badge(f, True)}<span class="t">{_e(f["title"])}</span>'
+                f'<summary>{_badge(f, True)}<span class="t">{_e(f["title"])}</span>{_unscored_tag(f)}'
                 f'<span class="tag">{_e(t("effort." + effort(f["check"])))}</span></summary><div class="body">'
                 + (f'<div class="why"><div class="k">{_e(t("html.why"))}</div>{_e(w)}</div>' if w else "")
                 + f'<div class="fixbox"><div class="k">{_e(t("html.todo"))}</div>{_e(f["remediation"])}</div>'
@@ -382,7 +391,7 @@ def _table(findings: list[dict]) -> list[str]:
         if len(f["evidence"]) > 2:
             ev += f'<br><a href="#f{i}">{_e(t("html.more", n=len(f["evidence"]) - 2))}</a>'
         out.append(f'<tr><td class="num">{i}</td><td class="mono el" title="{_e(f["element"])}">{_e(f["element"])}</td>'
-                   f'<td><a href="#f{i}">{_e(f["title"])}</a></td><td><div class="ev">{ev}</div></td>'
+                   f'<td><a href="#f{i}">{_e(f["title"])}</a>{_unscored_tag(f)}</td><td><div class="ev">{ev}</div></td>'
                    f'<td>{_e(t("pt." + f["pt"]))}</td><td class="num">{f["impact"]}</td>'
                    f'<td class="num">{f["probability"]}</td><td class="num">{_badge(f)}</td>'
                    f'<td class="muted">{_e(f["source"])}</td></tr>')

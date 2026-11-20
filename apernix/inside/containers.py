@@ -44,14 +44,61 @@ def _list(v: object) -> list:
     return v if isinstance(v, list) else []
 
 
-def analyze(info: dict) -> list[Finding]:
+def _root_by_config(info: dict) -> bool:
+    user = str(_dict(info.get("Config")).get("User", "")).strip()
+    return user in ("", "0", "root") or user.startswith(("0:", "root:"))
+
+
+def main_uid(tr: Transport, name: str) -> int | None:
+    """uid del processo principale del container in esecuzione (docker top), o None se non si può dire.
+
+    Il campo User dell'immagine non basta: molte immagini (PostgreSQL, per esempio) partono come root e poi
+    passano a un utente normale. Con le user namespace gli uid visti dall'host sono spostati (>= 65536):
+    in quel caso non si conclude niente."""
+    res = tr.run(["docker", "top", name, "-eo", "uid,pid,comm"], timeout=15)
+    if not res.ok:
+        return None
+    best = None
+    for line in res.output.decode("utf-8", "replace").splitlines()[1:300]:
+        parts = line.split()
+        if len(parts) >= 2 and parts[0].isdigit() and parts[1].isdigit():
+            uid, pid = int(parts[0]), int(parts[1])
+            if best is None or pid < best[1]:
+                best = (uid, pid)
+    if best is None or best[0] >= 65536:
+        return None
+    return best[0]
+
+
+def mitigations(host: dict, non_root: bool = False) -> list[str]:
+    """Difese già presenti nella configurazione che rendono meno probabile lo sfruttamento."""
+    out = []
+    if "ALL" in {str(c).upper().removeprefix("CAP_") for c in _list(host.get("CapDrop"))}:
+        out.append(t("ev.ctr.mit.capdrop"))
+    if host.get("ReadonlyRootfs") is True:
+        out.append(t("ev.ctr.mit.readonly"))
+    if any(str(o).startswith("no-new-privileges") for o in _list(host.get("SecurityOpt"))):
+        out.append(t("ev.ctr.mit.nnp"))
+    if non_root:
+        out.append(t("ev.ctr.mit.nonroot"))
+    return out
+
+
+def _lowered(prob: int, mits: list[str]) -> int:
+    return max(1, prob - (len(mits) + 1) // 2)       # 1-2 difese: -1; 3 o più: -2
+
+
+def analyze(info: dict, uid: int | None = None) -> list[Finding]:
+    """`uid`: uid del processo principale in esecuzione, se verificato (vedi main_uid)."""
     name = str(info.get("Name", "")).lstrip("/")[:64] or "?"
     host, cfg = _dict(info.get("HostConfig")), _dict(info.get("Config"))
     out: list[Finding] = []
     if host.get("Privileged") is True:
         out.append(_f("CTR-PRIVILEGED", name, 5, 3, [t("ev.ctr.privileged")]))
     if host.get("NetworkMode") == "host":
-        out.append(_f("CTR-HOSTNET", name, 3, 3, [t("ev.ctr.hostnet")]))
+        mits = mitigations(host, non_root=not _root_by_config(info))
+        out.append(_f("CTR-HOSTNET", name, 3, _lowered(3, mits),
+                      [t("ev.ctr.hostnet"), *([t("ev.ctr.mitigations", items=", ".join(mits))] if mits else [])]))
     if host.get("PidMode") == "host":
         out.append(_f("CTR-HOSTPID", name, 4, 3, [t("ev.ctr.hostpid")]))
     caps = sorted({str(c).upper().removeprefix("CAP_") for c in _list(host.get("CapAdd"))} & DANGEROUS_CAPS)
@@ -65,9 +112,14 @@ def analyze(info: dict) -> list[Finding]:
             out.append(_f("CTR-DOCKERSOCK", name, 5, 3, [f"mount: {src}"]))
         elif src == "/":
             out.append(_f("CTR-ROOTFS", name, 5, 3, ["mount: /"]))
-    user = str(cfg.get("User", "")).strip()
-    if user in ("", "0", "root") or user.startswith(("0:", "root:")):
-        out.append(_f("CTR-ROOT", name, 3, 2, [t("ev.ctr.root")]))
+    if _root_by_config(info) and (uid is None or uid == 0):
+        mits = mitigations(host)
+        ev = [t("ev.ctr.root"), *([t("ev.ctr.root_running")] if uid == 0 else []),
+              *([t("ev.ctr.mitigations", items=", ".join(mits))] if mits else [])]
+        root = _f("CTR-ROOT", name, 3, _lowered(2, mits), ev)
+        if uid is None:
+            root.pt = "not_tested"          # solo la configurazione: il processo vero non è stato guardato
+        out.append(root)
     for port, binds in _dict(host.get("PortBindings")).items():
         number = str(port).split("/")[0]
         for b in _list(binds):
@@ -92,5 +144,7 @@ def run(tr: Transport, names: tuple[str, ...]):
         return [], reason
     out: list[Finding] = []
     for info in infos:
-        out += analyze(info)
+        name = str(info.get("Name", "")).lstrip("/")[:64]
+        uid = main_uid(tr, name) if name and _root_by_config(info) else None
+        out += analyze(info, uid)
     return out, ""

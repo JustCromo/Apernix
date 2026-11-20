@@ -18,6 +18,23 @@ def _first(findings: list[Finding], prefixes: tuple[str, ...]) -> list[Finding]:
     return [f for f in findings if f.check.startswith(prefixes)]
 
 
+def drop_contradictions(findings: list[Finding], sources: dict | None = None) -> list[Finding]:
+    """"Il database ascolta su tutte le interfacce" non è un problema se i controlli sul container mostrano che
+    il database non è raggiungibile da fuori (nessuna porta pubblicata, rete host assente). Vale solo se
+    i container sono stati davvero controllati."""
+    if not sources or sources.get("docker") != "ok":
+        return findings
+    listen = [f for f in findings if f.check == "DB-LISTEN-ALL"]
+    if not listen:
+        return findings
+    exposed = {f.element.split(":")[0] for f in findings if f.check in ("CTR-DB-PUBLISHED", "CTR-HOSTNET")}
+    exposed |= {f.element for f in findings if f.check == "NET-DB-EXPOSED"}
+    keep = [f for f in listen if f.element.split("/")[0] in exposed]
+    if any(f.check == "NET-DB-EXPOSED" for f in findings):
+        return findings
+    return [f for f in findings if f.check != "DB-LISTEN-ALL" or f in keep]
+
+
 def simplify(findings: list[Finding]) -> list[Finding]:
     """Toglie i doppioni: "Dockerfile senza USER" (trivy) e "il container gira come root" (docker) sono lo stesso
     problema. Resta quello osservato sul container vero; i Dockerfile coinvolti vanno nelle sue evidenze."""

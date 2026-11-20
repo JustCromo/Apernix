@@ -215,7 +215,7 @@ def cmd_scan(o: Opts) -> int:
         emit_json(dict(doc, ok=True, saved=folder))
     else:
         show_scan(doc, folder)
-    worst = any(f.level in ("high", "critical") for f in res.findings)
+    worst = any(f.scored and f.level in ("high", "critical") for f in res.findings)
     return EXIT_FINDINGS if worst else EXIT_OK
 
 

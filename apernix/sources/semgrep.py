@@ -7,7 +7,7 @@ import os
 
 from apernix.i18n import t
 from apernix.models import Finding
-from apernix.sources.filters import is_audit_rule, is_dev_path, uses_django
+from apernix.sources.filters import Suppressions, is_audit_rule, is_dev_path, uses_django
 from apernix.tools import ToolResult, run_tool
 
 SOURCE = "semgrep"
@@ -70,7 +70,8 @@ def group(entries: list[dict], source: str) -> list[Finding]:
         out.append(Finding(
             check=check, title=first["title"], element=element,
             impact=max(e["impact"] for e in items), probability=max(e["prob"] for e in items), source=source,
-            evidence=evidence, pt="not_tested", remediation=t("SAST.fix")))
+            evidence=evidence, pt="not_tested", remediation=t("SAST.fix"),
+            scored=not all(e.get("signal") for e in items)))      # solo segnali "audit": elencati, ma non pesano
     out.sort(key=lambda f: -f.risk)
     return out[:MAX_FINDINGS]
 
@@ -85,6 +86,7 @@ def parse(data: bytes, src: str) -> list[Finding]:
         raise ValueError("json")
     entries = []
     django = uses_django(src)
+    suppressed = Suppressions(src)
     for item in results[:5000]:
         if not isinstance(item, dict):
             continue
@@ -102,10 +104,14 @@ def parse(data: bytes, src: str) -> list[Finding]:
         if ".django." in check_id and not django:         # regole Django su un'app che non usa Django: falso allarme
             continue
         impact, prob = SEVERITY.get(_s(extra.get("severity")).upper(), (2, 2))
-        note = ""
-        if is_audit_rule(check_id):                       # segnale da verificare, non vulnerabilità confermata
+        line = start.get("line") if isinstance(start.get("line"), int) else 0
+        end = item.get("end") if isinstance(item.get("end"), dict) else {}
+        if suppressed.covers(path, line, end.get("line") if isinstance(end.get("line"), int) else None):
+            continue                                      # annotato dallo sviluppatore (# nosec / # nosemgrep)
+        note, signal = "", is_audit_rule(check_id)
+        if signal:                                        # segnale da verificare, non vulnerabilità confermata
             impact, prob, note = min(impact, 3), min(prob, 2), " (segnale da verificare a mano)"
         entries.append({"check": f"SAST-{rule}"[:64], "title": first_sentence(_s(extra.get("message"), 400)) or rule,
-                        "where": f"{path}:{_s(start.get('line'), 8)}", "impact": impact, "prob": prob,
+                        "where": f"{path}:{_s(start.get('line'), 8)}", "impact": impact, "prob": prob, "signal": signal,
                         "rule": f"regola {_s(item.get('check_id'), 150)}{note}"})
     return group(entries, SOURCE)

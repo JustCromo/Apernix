@@ -1,3 +1,3 @@
 """Apernix: Risk Assessment & VSPT per applicazioni web."""
 
-__version__ = "0.9.3"
+__version__ = "0.9.4"

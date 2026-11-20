@@ -44,7 +44,8 @@ def build(targets: list[str], findings: list[Finding], requests_made: int = 0, e
     ordered = sorted(findings, key=lambda f: (-f.risk, f.check, f.element))
     summary = {lvl: 0 for lvl in LEVELS}
     for f in ordered:
-        summary[f.level] += 1
+        if f.scored:
+            summary[f.level] += 1
     return {
         "schema": SCHEMA,
         "tool": "apernix",
@@ -53,6 +54,7 @@ def build(targets: list[str], findings: list[Finding], requests_made: int = 0, e
         "targets": list(targets),
         "requests": requests_made,
         "summary": summary,
+        "unscored": sum(1 for f in ordered if not f.scored),
         "fingerprint": _tree((extra or {}).get("fingerprint", [])),
         "services": _tree((extra or {}).get("services", {})),
         "sources": _tree((extra or {}).get("sources", [])),

@@ -66,7 +66,8 @@ def parse(data: bytes) -> tuple[list[Finding], list[str]]:
                     check=f"NUC-{tid}"[:64], title=t(f"NUC-{tid}.title"), element=where or "?", impact=impact,
                     probability=prob, source=SOURCE, evidence=[f"template {tid} ({sev or 'info'})",
                                                                   f"matched-at: {where}"],
-                    remediation=t(f"NUC-{tid}.fix"), pt="confirmed"))
+                    remediation=t(f"NUC-{tid}.fix"), pt="confirmed",
+                    scored=False))        # SSH è un servizio della macchina, non della web application
             elif tid == "tech-detect":                  # solo le tecnologie vere, non i nomi dei template
                 label = _s(item.get("matcher-name"), 64)
                 if label and label not in tech and len(tech) < 50:

@@ -34,7 +34,8 @@ timeout = 10         # secondi di attesa per risposta (1 - 120)
 # path = "/home/ivan/Racoonix"   # cartella con il codice dell'app (con ssh: percorso sulla macchina remota)
 # containers = ["racoonix-web-1", "racoonix-db-1"]   # container Docker da controllare (configurazione e log)
 # db_container = "racoonix-db-1" # container PostgreSQL (si usa docker exec, nessuna porta da aprire)
-# db_user = "app"                # utente del database: meglio uno di sola lettura creato per Apernix
+# db_user = "app"                # ruolo con cui Apernix LEGGE il database (di solito quello del compose). Quale ruolo usa
+#                                # davvero l'app lo legge da solo dalle connessioni attive; meglio un ruolo di sola lettura
 # db_name = "racoonix"
 #
 # Solo per transport = "ssh" (solo chiave, mai password; l'host deve già essere in ~/.ssh/known_hosts):

@@ -179,7 +179,8 @@ class DashState:
     def counts(self) -> dict:
         c = {"critical": 0, "high": 0, "medium": 0, "low": 0}
         for f in self.findings:
-            c[f.level] += 1
+            if f.scored:           # come nel report: i segnali da verificare e i problemi della macchina non contano
+                c[f.level] += 1
         return c
 
     def overall(self) -> float:
