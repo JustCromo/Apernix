@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -28,7 +29,11 @@ class ToolResult:
 
 
 def which(name: str) -> str | None:
-    return shutil.which(name)
+    """Percorso del tool: prima nel PATH, poi accanto a Python (dove install.sh --tools mette bandit e semgrep)."""
+    found = shutil.which(name)
+    if found is None and sys.prefix != sys.base_prefix:       # solo dentro un venv (quello creato da install.sh)
+        found = shutil.which(name, path=os.path.dirname(sys.executable))
+    return found
 
 
 def run_tool(argv: list[str], out_flag_builder, timeout: float, tick=None) -> ToolResult:

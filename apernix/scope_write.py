@@ -52,6 +52,17 @@ def to_toml(doc: dict) -> str:
             lines.append(f"name = {_q(tg['name'])}")
         if tg.get("ca_file"):
             lines.append(f"ca_file = {_q(tg['ca_file'])}")
+    internal = doc.get("internal")
+    if isinstance(internal, dict):
+        lines += ["", "[internal]"]
+        for key in ("transport", "path", "host", "user", "key", "db_container", "db_user", "db_name"):
+            if isinstance(internal.get(key), str) and internal[key]:
+                lines.append(f"{key} = {_q(internal[key])}")
+        if isinstance(internal.get("port"), int) and not isinstance(internal.get("port"), bool):
+            lines.append(f"port = {internal['port']}")
+        cont = [c for c in internal.get("containers", []) if isinstance(c, str)]
+        if cont:
+            lines.append("containers = [" + ", ".join(_q(c) for c in cont) + "]")
     net = _d(doc.get("network"))
     lines += ["", "[network]", f"ports = {_q(str(net.get('ports', 'none')))}"]
     lim = {**LIMITS_DEFAULT, **_d(doc.get("limits"))}
@@ -74,6 +85,20 @@ def _write_atomic(path: str, text: str) -> None:
         if os.path.exists(tmp):
             os.unlink(tmp)
         raise
+
+
+def set_internal(path: str, internal: dict) -> Scope:
+    """Salva la sezione [internal] nello scope (che deve già esistere). Validata prima di scrivere."""
+    doc = read_scope_doc(path)
+    keys = ("transport", "path", "host", "user", "port", "key", "containers", "db_container", "db_user", "db_name")
+    doc["internal"] = {k: internal[k] for k in keys if k in internal}
+    base = os.path.dirname(os.path.abspath(path))
+    scope = scope_from_dict(doc, base)
+    raw = doc.get("target")
+    doc["target"] = [{k: it[k] for k in ("url", "name", "ca_file") if isinstance(it.get(k), str)}
+                     for it in raw if isinstance(it, dict)] if isinstance(raw, list) else []
+    _write_atomic(path, to_toml(doc))
+    return scope
 
 
 def add_target(path: str, url: str, name: str = "", ca_file: str = "", ports: str | None = None,

@@ -127,11 +127,11 @@ class FakeTLS:
 
 
 class TestGuided(unittest.TestCase):
-    def make(self, d, answers, runner=None, found=(), tls=None):
+    def make(self, d, answers, runner=None, found=(), tls=None, detector=lambda url: None):
         said = []
         g = Guided(os.path.join(d, "scope.toml"), os.path.join(d, "out"), ask=scripted(answers),
                    say=said.append, runner=runner or (lambda *a: "ok"), finder=lambda: list(found),
-                   tls=tls or FakeTLS(d), probe=lambda host, port: ("http", "Titolo", False))
+                   tls=tls or FakeTLS(d), probe=lambda host, port: ("http", "Titolo", False), detector=detector)
         return g, said
 
     def test_discover_add_and_full_scan(self):

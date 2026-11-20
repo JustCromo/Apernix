@@ -14,9 +14,9 @@ import queue
 import threading
 import time
 
+from apernix import autoconf, tlsinfo
 from apernix import discover as disc
 from apernix import report as rpt
-from apernix import tlsinfo
 from apernix.dashboard.state import (
     LEVEL_ROLE,
     P_FINDINGS,
@@ -33,7 +33,7 @@ from apernix.dashboard.view import Canvas
 from apernix.engine import FLOW, Event, mmss, run_scan
 from apernix.i18n import t
 from apernix.scope import ScopeError, load_scope, parse_target_url
-from apernix.scope_write import add_target
+from apernix.scope_write import add_target, set_internal
 from apernix.term import clean
 from apernix.web.http import SafeClient
 
@@ -96,7 +96,7 @@ class Controller:
     """Logica della dashboard, indipendente da curses (così si prova con i test)."""
 
     def __init__(self, scope_path: str, out_dir: str, spawn=None, finder=disc.discover, tls=tlsinfo,
-                 probe=disc.probe, redraw=lambda: None, opener=None) -> None:
+                 probe=disc.probe, redraw=lambda: None, opener=None, detector=autoconf.detect_internal) -> None:
         self.scope_path, self.out_dir = scope_path, out_dir
         self.state = DashState()
         self.events: queue.Queue = queue.Queue()
@@ -104,6 +104,8 @@ class Controller:
         self.spawn = spawn or (lambda fn: threading.Thread(target=fn, daemon=True).start())
         self.finder, self.tls, self.probe, self.redraw = finder, tls, probe, redraw
         self.opener = opener or open_in_browser
+        self.detector = detector
+        self._internal_asked: set = set()
         self.discovered: list = []
         self.quit = False
         self.last_targets: dict = {}
@@ -202,6 +204,10 @@ class Controller:
         tg = next((x for x in sc.targets if x.url == url), None) if sc else None
         if tg is None or self.state.running:
             return
+        if sc.internal is None and url not in self._internal_asked:
+            self._internal_asked.add(url)
+            if self._offer_internal(url):
+                return
         phases = PROFILES[self.state.profile]
         one = dataclasses.replace(sc, targets=(tg,))
         self.cancel = threading.Event()
@@ -230,6 +236,27 @@ class Controller:
                     events.put(Event("phase", {"id": "report", "state": "fail"}))
             events.put(Event("_done", data))
         self.spawn(work)
+
+    def _offer_internal(self, url: str) -> bool:
+        """Se l'app gira in Docker qui, propone l'analisi interna. True se ha aperto la domanda."""
+        try:
+            found = self.detector(url)
+        except Exception:       # il rilevamento non deve mai bloccare l'analisi
+            found = None
+        if not found:
+            return False
+
+        def yes():
+            try:
+                set_internal(self.scope_path, found)
+            except (ScopeError, OSError):
+                self.info(t("dash.modal.error"), [t("err.output_dir")])
+                return
+            self.start_scan(url)
+        self.state.modal = Modal("confirm", t("dash.modal.internal"),
+                                 [t("dash.internal.question"), "", *autoconf.internal_lines(found)],
+                                 on_yes=yes, on_no=lambda: self.start_scan(url))
+        return True
 
     # ------------------------------------------------------------ nuovo bersaglio
     def new_target(self, url: str, name: str = "") -> None:

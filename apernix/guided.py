@@ -16,12 +16,12 @@ import ipaddress
 import os
 import re
 
-from apernix import __version__, tlsinfo
+from apernix import __version__, autoconf, tlsinfo
 from apernix import discover as disc
 from apernix import report as rpt
 from apernix.i18n import t
 from apernix.scope import Scope, ScopeError, load_scope, parse_target_url
-from apernix.scope_write import add_target
+from apernix.scope_write import add_target, set_internal
 from apernix.term import clean, paint, symbol
 from apernix.tools import which
 from apernix.web.http import SafeClient
@@ -49,7 +49,7 @@ class Back(Exception):
 
 class Guided:
     def __init__(self, scope_path: str, out_dir: str, ask=input, say=print, runner=None,
-                 finder=disc.discover, tls=tlsinfo, probe=disc.probe) -> None:
+                 finder=disc.discover, tls=tlsinfo, probe=disc.probe, detector=autoconf.detect_internal) -> None:
         self.scope_path = scope_path
         self.out_dir = out_dir
         self._ask = ask
@@ -58,6 +58,8 @@ class Guided:
         self.finder = finder      # scoperta delle webapp locali (sostituibile nei test)
         self.tls = tls            # funzioni TLS (sostituibili nei test)
         self.probe = probe        # lettura del titolo della pagina, per dare un nome al bersaglio
+        self.detector = detector  # riconosce container e database dell'app per l'analisi interna
+        self._internal_asked: set = set()
 
     # ------------------------------------------------------------ utilità
     def ask(self, text: str) -> str:
@@ -212,6 +214,28 @@ class Guided:
         self.ok(t("g.added", path=clean(self.scope_path)))
         self.scan_flow(tg.url)
 
+    def offer_internal(self, url: str):
+        """Se l'app gira in Docker qui, propone l'analisi interna. Restituisce il nuovo scope o None."""
+        try:
+            found = self.detector(url)
+        except Exception:       # il rilevamento non deve mai bloccare l'analisi
+            return None
+        if not found:
+            return None
+        self.say("")
+        self.say(paint(t("g.internal_found"), "title"))
+        for line in autoconf.internal_lines(found):
+            self.say(f"  {clean(line, 200)}")
+        if not self.yes(t("g.internal_ask")):
+            return None
+        try:
+            sc = set_internal(self.scope_path, found)
+        except (ScopeError, OSError):
+            self.error(t("err.output_dir"))
+            return None
+        self.ok(t("g.internal_saved"))
+        return self.load() or sc
+
     # ------------------------------------------------------------ analisi
     def choose_profile(self, sc: Scope) -> tuple[str, ...]:
         self.say("")
@@ -266,6 +290,9 @@ class Guided:
         tg = next((x for x in sc.targets if x.url == url), None) if sc else None
         if tg is None:
             return
+        if sc.internal is None and url not in self._internal_asked:
+            self._internal_asked.add(url)
+            sc = self.offer_internal(url) or sc
         phases = self.choose_profile(sc)
         one = dataclasses.replace(sc, targets=(tg,))
         try:

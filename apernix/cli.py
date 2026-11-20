@@ -14,7 +14,7 @@ import sys
 import time
 from dataclasses import dataclass, field
 
-from apernix import __version__, engine
+from apernix import __version__, doctor, engine
 from apernix import report as rpt
 from apernix.engine import PHASES, ScanResult, mmss
 from apernix.guided import Guided, prompt_text
@@ -108,6 +108,24 @@ def cmd_version(o: Opts) -> int:
         emit_json({"ok": True, "version": __version__})
     else:
         out(f"Apernix {__version__}")
+    return EXIT_OK
+
+
+def cmd_doctor(o: Opts) -> int:
+    rows = doctor.check()
+    if o.json:
+        emit_json({"ok": True, "python": sys.version.split()[0],
+                   "tools": [{"tool": r["tool"], "found": r["found"], "hint": r["hint"]} for r in rows]})
+        return EXIT_OK
+    out(paint(f"{symbol('ok')} Python {sys.version.split()[0]}", "ok"))
+    for r in rows:
+        mark, role = (symbol("ok"), "ok") if r["found"] else (symbol("warn"), "warn")
+        out(paint(f"{mark} {r['tool']:<8}", role) + f" {t(r['use'])}")
+        if not r["found"]:
+            hint = t(r["hint"]) if r["hint"].startswith("doctor.") else r["hint"]
+            out(paint(f"    {t('doctor.install')}: {hint}" if hint else f"    {t('doctor.install_unknown')}", "dim"))
+    out()
+    out(t("doctor.note"))
     return EXIT_OK
 
 
@@ -334,6 +352,7 @@ COMMANDS = {
     "console": (cmd_console, "cmd.console"),
     "menu": (cmd_menu, "cmd.menu"),
     "dashboard": (cmd_dashboard, "cmd.dashboard"),
+    "doctor": (cmd_doctor, "cmd.doctor"),
 }
 
 

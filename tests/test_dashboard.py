@@ -116,7 +116,8 @@ class TestView(unittest.TestCase):
 
     def test_guide_is_full_page(self):
         s = DashState()
-        c = Controller("/nonexistent/scope.toml", "/tmp", spawn=lambda fn: fn(), finder=lambda: [])
+        c = Controller("/nonexistent/scope.toml", "/tmp", spawn=lambda fn: fn(), finder=lambda: [],
+                       detector=lambda url: None)
         c.state = s
         c.handle_key("?")
         self.assertIsNotNone(s.detail)
@@ -167,9 +168,10 @@ class TestView(unittest.TestCase):
 
 
 class TestController(unittest.TestCase):
-    def ctrl(self, d, found=(), tls=None):
+    def ctrl(self, d, found=(), tls=None, detector=lambda url: None):
         c = Controller(os.path.join(d, "scope.toml"), os.path.join(d, "out"), spawn=lambda fn: fn(),
-                       finder=lambda: list(found), tls=tls or FakeTLS(d), probe=lambda h, p: ("http", "Lab", False))
+                       finder=lambda: list(found), tls=tls or FakeTLS(d), probe=lambda h, p: ("http", "Lab", False),
+                       detector=detector)
         c.reload_targets()
         c.start_discovery()
         c.pump()
@@ -400,7 +402,7 @@ class TestController(unittest.TestCase):
         with tmpdir() as d:
             def boom():
                 raise RuntimeError("x")
-            c = Controller(os.path.join(d, "s.toml"), d, spawn=lambda fn: fn(), finder=boom)
+            c = Controller(os.path.join(d, "s.toml"), d, spawn=lambda fn: fn(), finder=boom, detector=lambda url: None)
             c.start_discovery()
             c.pump()
             self.assertFalse(c.state.discovering)
