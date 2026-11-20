@@ -56,9 +56,11 @@ LISTING = re.compile(rb"<title>(?:Index of /|Directory listing for /)")
 RISKY_METHODS = ("PUT", "DELETE", "TRACE", "CONNECT", "PATCH")
 
 
-def _f(check: str, element: str, impact: int, prob: int, evidence: list[str]) -> Finding:
+def _f(check: str, element: str, impact: int, prob: int, evidence: list[str], pt: str = "confirmed") -> Finding:
+    """Questi controlli sono verifiche attive: il problema è stato osservato davvero in una risposta (esito PT
+    "confermato"), senza modificare nulla sul sito. Fa eccezione WEB-METH: i metodi sono solo dichiarati."""
     return Finding(check=check, title=t(f"{check}.title"), element=element, impact=impact,
-                   probability=prob, source=SOURCE, evidence=evidence, pt="not_tested",
+                   probability=prob, source=SOURCE, evidence=evidence, pt=pt,
                    remediation=t(f"{check}.fix"))
 
 
@@ -131,7 +133,7 @@ def check_methods(client: SafeClient, base: str) -> list[Finding]:
     allow = r.headers.get("allow", "") + "," + r.headers.get("access-control-allow-methods", "")
     risky = sorted({m.strip().upper() for m in allow.split(",")} & set(RISKY_METHODS))
     if risky:
-        return [_f("WEB-METH-001", base, 2, 2, [f"Allow: {', '.join(risky)}"])]
+        return [_f("WEB-METH-001", base, 2, 2, [f"Allow: {', '.join(risky)}"], pt="not_tested")]
     return []
 
 

@@ -32,6 +32,14 @@ class TestActive(unittest.TestCase):
         ids, _ = scan(routes)
         self.assertTrue({"WEB-EXP-GIT", "WEB-EXP-ENV", "WEB-EXP-DEBUG"} <= ids)
 
+    def test_pt_outcome_is_confirmed_when_observed(self):
+        with LocalServer({"/": (200, [], b"home"), "/.env": (200, [], b"SECRET_KEY=abc\nDB_PASSWORD=x\n")}) as srv:
+            c = SafeClient(make_scope(srv.base + "/", max_requests=200))
+            found = active.run_active(c, srv.base + "/", c.get(srv.base + "/"))
+        env = next(f for f in found if f.check == "WEB-EXP-ENV")
+        self.assertEqual(env.pt, "confirmed")
+        self.assertTrue(env.evidence)            # la prova c'è sempre: stato HTTP e firma trovata
+
     def test_error_disclosure(self):
         tb = b"<pre>Traceback (most recent call last):\n  File app.py</pre>"
         ids, _ = scan({"/": (200, [], b"home"), "*": (500, [], tb)})

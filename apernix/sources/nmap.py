@@ -69,7 +69,8 @@ def parse(xml_data: bytes) -> list[dict]:
 
 def _f(check: str, element: str, impact: int, prob: int, evidence: list[str]) -> Finding:
     return Finding(check=check, title=t(f"{check}.title"), element=element, impact=impact,
-                   probability=prob, source=SOURCE, evidence=evidence, pt="not_tested",
+                   probability=prob, source=SOURCE, evidence=evidence,
+                   pt="confirmed",       # la porta ha risposto davvero a nmap
                    remediation=t(f"{check}.fix"))
 
 

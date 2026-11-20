@@ -74,6 +74,7 @@ def parse(data: bytes) -> tuple[list[Finding], list[str]]:
             evidence.append("estratto: " + ", ".join(_s(x, 80) for x in extracted[:3]))
         found.append(Finding(
             check=f"NUC-{tid}"[:64], title=name, element=where or "?", impact=impact, probability=prob,
-            source=SOURCE, evidence=evidence, pt="not_tested", remediation=t("NUC.fix"),
+            source=SOURCE, evidence=evidence, remediation=t("NUC.fix"),
+            pt="confirmed",       # il template ha trovato la risposta attesa nella risposta del sito
         ))
     return found, tech
