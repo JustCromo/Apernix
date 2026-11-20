@@ -35,19 +35,25 @@ def drop_contradictions(findings: list[Finding], sources: dict | None = None) ->
     return [f for f in findings if f.check != "DB-LISTEN-ALL" or f in keep]
 
 
-def simplify(findings: list[Finding]) -> list[Finding]:
+def _tokens(text: str) -> list[str]:
+    return re.split(r"[-_./:]", text.lower())
+
+
+def simplify(findings: list[Finding], non_root: set[str] | frozenset = frozenset()) -> list[Finding]:
     """Toglie i doppioni: "Dockerfile senza USER" (trivy) e "il container gira come root" (docker) sono lo stesso
     problema. Resta quello osservato sul container vero; i Dockerfile coinvolti vanno nelle sue evidenze."""
     roots = [f for f in findings if f.check == "CTR-ROOT"]
     files = [f for f in findings if f.check == "CFG-DS-0002"]
-    if not roots or not files:
+    if not files:
         return findings
     cfg = files[0]
     left = []
     for path in (e[6:] for e in cfg.evidence if e.startswith("file: ")):
         # Il Dockerfile "db/Dockerfile" appartiene al container che ha "db" nel nome (racoonix-db-1), non agli altri.
-        folder = path.replace("\\", "/").rsplit("/", 2)[-2] if path.count("/") else ""
-        owners = [f for f in roots if folder and folder.lower() in re.split(r"[-_./]", f.element.lower())]
+        folder = path.replace("\\", "/").rsplit("/", 2)[-2].lower() if path.count("/") else ""
+        if folder and any(folder in _tokens(n) for n in non_root):
+            continue        # il processo in esecuzione NON è root (l'entrypoint passa a un altro utente): falso allarme
+        owners = [f for f in roots if folder and folder in _tokens(f.element)]
         for f in owners:
             f.evidence = [*f.evidence, f"Dockerfile senza USER ({path})"]
         if not owners:

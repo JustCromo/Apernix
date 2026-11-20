@@ -139,16 +139,19 @@ class TestNosecAndSignals(unittest.TestCase):
             with open(os.path.join(d, "a.py"), "w") as fh:
                 fh.write("y = Markup(z)  # nosec\nopen(u)\nurlopen(w)\n")
 
-            def row(rule, line, sev="WARNING"):
+            def row(rule, line, sev="WARNING", conf="HIGH"):
                 return {"check_id": rule, "path": os.path.join(d, "a.py"), "start": {"line": line},
-                        "end": {"line": line}, "extra": {"severity": sev, "message": "m."}}
+                        "end": {"line": line},
+                        "extra": {"severity": sev, "message": "m.", "metadata": {"confidence": conf}}}
             rows = [row("python.flask.security.xss.audit.explicit-unescape-with-markup", 1),
                     row("python.lang.security.audit.dynamic-urllib-use-detected", 3),
-                    row("python.flask.security.injection.tainted-url-host", 2, "ERROR")]
+                    row("python.flask.security.injection.tainted-url-host", 2, "ERROR"),
+                    row("python.sqlalchemy.security.sqlalchemy-execute-raw-query", 3, "ERROR", "MEDIUM")]
             found = {f.check: f for f in semgrep.parse(json.dumps({"results": rows}).encode(), d)}
         self.assertNotIn("SAST-explicit-unescape-with-markup", found)          # annotato con # nosec
         self.assertFalse(found["SAST-dynamic-urllib-use-detected"].scored)     # solo un segnale
         self.assertTrue(found["SAST-tainted-url-host"].scored)
+        self.assertFalse(found["SAST-sqlalchemy-execute-raw-query"].scored)    # confidenza media: stesso criterio
 
     def test_bandit_blacklist_is_a_signal(self):
         rows = [{"test_id": "B310", "test_name": "blacklist", "issue_text": "x", "issue_severity": "MEDIUM",
@@ -231,6 +234,52 @@ class TestContradictions(unittest.TestCase):
         self.assertEqual(len(correlate.drop_contradictions([listen, host], {"docker": "ok"})), 2)
         net = self.mk("NET-DB-EXPOSED", "h:5432")
         self.assertEqual(len(correlate.drop_contradictions([listen, net], {"docker": "ok"})), 2)
+
+
+class TestVerdictAndPlan(unittest.TestCase):
+    def doc(self, *rows):
+        from apernix import report
+        from apernix.models import Finding
+        fs = [Finding(check=c, title=c, element="e", evidence=["x"], pt="not_tested", impact=i, probability=p,
+                      remediation="r", source="s", scored=sc) for c, i, p, sc in rows]
+        return report.build(["https://x/"], fs, 0, {"sources": []}, {"name": "n"})
+
+    def test_title_follows_grade(self):
+        from apernix import report_html
+        doc = self.doc(("A-1", 3, 3, True), ("A-2", 2, 2, True))
+        value, letter, _ = report_html.score(doc["findings"])
+        self.assertEqual(letter, "A")
+        level, title, _ = report_html._verdict(doc, letter)
+        self.assertEqual(level, "ok")
+        self.assertNotIn("Discreto", title)
+
+    def test_plan_separates_unscored(self):
+        from apernix import report_html
+        doc = self.doc(("A-1", 4, 4, True), ("B-1", 2, 2, False))
+        html = "".join(report_html._plan(doc["findings"]))
+        self.assertIn("col-review", html)
+        self.assertEqual(html.count("col-now"), 1)
+        self.assertEqual(html.count('class="step'), 2)
+
+    def test_hero_insight_uses_scored_only(self):
+        from apernix import report_html
+        doc = self.doc(("A-1", 4, 4, True), ("A-2", 3, 3, True), ("A-3", 2, 2, True), ("A-4", 1, 1, True),
+                       ("N-1", 5, 5, False))
+        html = "".join(report_html._hero(doc, 3))
+        pct = round(100 * (16 + 9 + 4) / (16 + 9 + 4 + 1))
+        self.assertIn(f"{pct}", html)
+
+
+class TestDockerfileVsRunningProcess(unittest.TestCase):
+    def test_dockerfile_dropped_when_container_verified_non_root(self):
+        from apernix.correlate import simplify
+        from apernix.models import Finding
+        f = Finding(check="CFG-DS-0002", title="t", element="db/Dockerfile", evidence=["db/Dockerfile"],
+                    pt="not_tested", impact=3, probability=2, remediation="r", source="trivy")
+        c = Finding(check="CTR-ROOT", title="t", element="racoonix-db", evidence=["e"], pt="not_tested",
+                    impact=3, probability=2, remediation="r", source="docker")
+        out = simplify([f, c], frozenset({"racoonix-db"}))
+        self.assertFalse([x for x in out if x.check == "CFG-DS-0002" and "db/Dockerfile" in x.element])
 
 
 if __name__ == "__main__":

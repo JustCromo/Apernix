@@ -137,14 +137,24 @@ def analyze(info: dict, uid: int | None = None) -> list[Finding]:
     return out
 
 
-def run(tr: Transport, names: tuple[str, ...]):
-    """Restituisce (problemi, motivo dell'errore o '')."""
+def run_ex(tr: Transport, names: tuple[str, ...]):
+    """Restituisce (problemi, motivo dell'errore o '', nomi dei container che per configurazione sembrano root
+    ma dal processo in esecuzione risultano NON root)."""
     infos, reason = inspect(tr, names)
     if reason:
-        return [], reason
+        return [], reason, set()
     out: list[Finding] = []
+    cleared: set[str] = set()
     for info in infos:
         name = str(info.get("Name", "")).lstrip("/")[:64]
         uid = main_uid(tr, name) if name and _root_by_config(info) else None
+        if uid not in (None, 0):
+            cleared.add(name)
         out += analyze(info, uid)
-    return out, ""
+    return out, "", cleared
+
+
+def run(tr: Transport, names: tuple[str, ...]):
+    """Restituisce (problemi, motivo dell'errore o '')."""
+    found, reason, _ = run_ex(tr, names)
+    return found, reason

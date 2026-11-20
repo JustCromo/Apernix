@@ -40,9 +40,13 @@ def parse(data: bytes, src: str) -> list[Finding]:
         impact = LEVEL.get(_s(item.get("issue_severity")).upper(), 2)
         prob = LEVEL.get(_s(item.get("issue_confidence")).upper(), 2)
         name = _s(item.get("test_name"), 60)
-        note, signal = "", name.startswith("blacklist")
-        if signal:                                        # elenco di funzioni "da guardare", non una falla certa
+        # Stesso criterio di semgrep: pesa solo se non è un elenco di funzioni "da guardare" e la confidenza è alta.
+        confidence = _s(item.get("issue_confidence")).upper()
+        note, signal = "", name.startswith("blacklist") or confidence != "HIGH"
+        if name.startswith("blacklist"):
             impact, prob, note = min(impact, 3), min(prob, 2), " - segnale da verificare a mano"
+        elif signal:
+            note = f" - confidenza {confidence.lower() or 'non indicata'}: da verificare a mano"
         entries.append({
             "check": f"SAST-{tid}", "title": _s(item.get("issue_text"), 200) or tid, "where": where,
             "impact": impact, "prob": prob, "signal": signal,

@@ -30,111 +30,117 @@ def _vars(p: dict) -> str:
 
 
 CSS = """
-:root{%(light)s;--line:color-mix(in srgb,var(--muted) 28%%,transparent);--chip:color-mix(in srgb,var(--muted) 12%%,transparent)}
-@media (prefers-color-scheme:dark){:root{%(dark)s}}
+:root{%(light)s;--line:color-mix(in srgb,var(--muted) 24%%,transparent);--chip:color-mix(in srgb,var(--muted) 12%%,transparent);--shadow:0 1px 2px rgba(0,0,0,.06),0 8px 24px -12px rgba(0,0,0,.18)}
+@media (prefers-color-scheme:dark){:root{%(dark)s;--shadow:0 1px 2px rgba(0,0,0,.4),0 10px 28px -14px rgba(0,0,0,.7)}}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--text);font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
-main{max-width:1080px;margin:0 auto;padding:32px 24px 64px}
-h1,h2,h3{line-height:1.25;font-weight:600;margin:0}
-h2{font-size:21px;margin:48px 0 6px}
-h2+p.lead{margin:0 0 18px;color:var(--muted)}
+html{scroll-behavior:smooth;scroll-padding-top:16px}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+.shell{display:grid;grid-template-columns:268px minmax(0,1fr);gap:clamp(20px,3vw,48px);max-width:1760px;margin:0 auto;padding:0 clamp(16px,3vw,56px)}
+main{min-width:0;padding:36px 0 72px}
+h1,h2,h3{line-height:1.25;font-weight:650;margin:0}
+h2{font-size:23px;margin:56px 0 4px;display:flex;align-items:center;gap:10px}
+h2::before{content:"";width:5px;height:22px;border-radius:3px;background:var(--primary)}
+h2+p.lead{margin:0 0 20px;color:var(--muted)}
 a{color:var(--primary)}
 code,.mono{font-family:ui-monospace,"JetBrains Mono","DejaVu Sans Mono",monospace;font-size:13.5px}
-.top{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;border-bottom:1px solid var(--line);padding-bottom:18px}
-.brand{font:700 15px/1 ui-monospace,monospace;letter-spacing:.18em;color:var(--primary)}
-.top .id{display:flex;align-items:center;gap:16px}
-.top .logo{flex:none;width:72px;height:72px;object-fit:contain}
-.top h1{font-size:30px;margin-top:10px}
-.top .url{color:var(--muted);word-break:break-all}
-.meta{display:flex;gap:18px;flex-wrap:wrap;color:var(--muted);font-size:14px}
-.meta b{color:var(--text);font-weight:600}
-.toc{position:sticky;top:0;z-index:5;display:flex;gap:4px;flex-wrap:wrap;padding:10px 0;background:var(--bg);border-bottom:1px solid var(--line)}
-.toc a{color:var(--muted);text-decoration:none;font-size:14px;padding:4px 10px;border-radius:999px}
-.toc a:hover{background:var(--chip);color:var(--text)}
 .small{font-size:13px}
-.hero{margin-top:24px;padding:24px;border-radius:16px;background:var(--surface);display:flex;gap:28px;align-items:center;border-left:6px solid var(--vcolor)}
-.grade{min-width:120px;text-align:center}
-.grade .letter{width:96px;height:96px;margin:0 auto;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:52px;font-weight:800;color:var(--c);border:6px solid var(--c)}
-.grade .pts{margin-top:8px;color:var(--muted);font-size:13px}
-.vtext h2{margin:0;font-size:25px;color:var(--vcolor)}
-.vtext p{margin:6px 0 0}
+.muted{color:var(--muted)} .ok{color:var(--ok)} .warn{color:var(--medium)}
+.side{position:sticky;top:0;align-self:start;height:100vh;overflow:auto;padding:28px 0;display:flex;flex-direction:column;gap:22px}
+.brand-block{display:flex;align-items:center;gap:12px}
+.brand-block .logo{width:56px;height:56px;object-fit:contain;flex:none}
+.brand{font:800 17px/1 ui-monospace,monospace;letter-spacing:.2em;color:var(--primary)}
+.toc{display:flex;flex-direction:column;gap:2px}
+.toc a{display:flex;justify-content:space-between;align-items:center;gap:8px;color:var(--muted);text-decoration:none;font-size:15px;padding:9px 12px;border-radius:10px;transition:background .12s,color .12s}
+.toc a:hover{background:var(--chip);color:var(--text)}
+.toc a b{font-size:12px;font-weight:700;background:var(--chip);color:var(--text);border-radius:999px;padding:0 8px;min-width:22px;text-align:center}
+.side-meta{margin-top:auto;display:grid;gap:8px;font-size:13px;color:var(--muted);border-top:1px solid var(--line);padding-top:16px}
+.side-meta div{display:flex;justify-content:space-between;gap:10px}
+.side-meta b{color:var(--text);font-weight:600;text-align:right}
+.top{padding-bottom:22px;border-bottom:1px solid var(--line)}
+.eyebrow{font-size:12.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--primary);font-weight:700}
+.top h1{font-size:clamp(28px,3.2vw,40px);margin-top:6px}
+.top .url{color:var(--muted);word-break:break-all;margin-top:4px}
+.hero{margin-top:26px;padding:clamp(20px,2.4vw,32px);border-radius:20px;background:var(--surface);box-shadow:var(--shadow);display:grid;grid-template-columns:auto minmax(0,1fr) minmax(260px,360px);gap:clamp(20px,3vw,40px);align-items:center;border:1px solid var(--line);border-top:5px solid var(--vcolor)}
+.grade{text-align:center}
+.ring{width:148px;height:148px;border-radius:50%;margin:0 auto;display:grid;place-items:center;background:conic-gradient(var(--c) calc(var(--p)*1%%),var(--faint) 0)}
+.ring-in{width:116px;height:116px;border-radius:50%;background:var(--surface);display:grid;place-items:center}
+.grade .letter{font-size:60px;font-weight:800;color:var(--c);line-height:1}
+.grade .pts{margin-top:10px;color:var(--muted);font-size:13px}
+.vtext h2{margin:0;font-size:clamp(22px,2.2vw,28px);color:var(--vcolor);display:block}
+.vtext h2::before{display:none}
+.vtext p{margin:8px 0 0;max-width:62ch}
 .insight{display:flex;flex-direction:column;gap:2px;font-weight:600}
-.counts{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
-.count{padding:3px 12px;border-radius:999px;background:color-mix(in srgb,var(--c) 15%%,transparent);color:var(--c);font-size:14px}
-.count.zero{--c:var(--muted);opacity:.7}
-.plan{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
-.col{background:var(--surface);border-radius:12px;padding:14px 16px}
+.kpis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.kpi{border-radius:14px;padding:12px 16px;background:color-mix(in srgb,var(--c) 12%%,transparent);border:1px solid color-mix(in srgb,var(--c) 30%%,transparent)}
+.kpi b{display:block;font-size:30px;line-height:1.1;color:var(--c)}
+.kpi span{font-size:13.5px;color:var(--muted)}
+.kpi.zero{--c:var(--muted);opacity:.65}
+.plan{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:14px;align-items:start}
+.col{background:var(--surface);border-radius:16px;padding:16px 18px;box-shadow:var(--shadow);border:1px solid var(--line)}
 .col h3{font-size:16px;display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
 .col h3 span{font-size:12.5px;color:var(--muted);font-weight:400}
-.col-now h3{color:var(--critical)} .col-soon h3{color:var(--medium)} .col-later h3{color:var(--muted)}
-.step{display:flex;gap:10px;padding:10px 0;border-top:1px solid var(--line);color:var(--text);text-decoration:none;line-height:1.45}
+.col-now h3{color:var(--critical)} .col-soon h3{color:var(--medium)} .col-later h3{color:var(--muted)} .col-review h3{color:var(--accent)}
+.step{display:flex;gap:10px;padding:11px 8px;margin:0 -8px;border-top:1px solid var(--line);color:var(--text);text-decoration:none;line-height:1.45;border-radius:10px}
+.step:hover{background:var(--chip)}
 .step:hover b{color:var(--primary)}
-.box-ck{flex:none;width:16px;height:16px;margin-top:3px;border:2px solid var(--c);border-radius:4px}
-.tag{display:inline-block;margin-top:4px;font-size:12px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:0 8px}
-ul.good{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 18px}
-ul.good li{padding-left:26px;position:relative}
+.box-ck{flex:none;width:16px;height:16px;margin-top:3px;border:2px solid var(--c);border-radius:5px}
+.tag{display:inline-block;margin:4px 6px 0 0;font-size:12px;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:0 9px}
+ul.good{list-style:none;padding:18px 22px;margin:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:8px 24px;background:var(--surface);border-radius:16px;box-shadow:var(--shadow);border:1px solid var(--line)}
+ul.good li{padding-left:28px;position:relative}
 ul.good li::before{content:"✔";position:absolute;left:4px;color:var(--ok);font-weight:700}
-h3.cat{margin:28px 0 10px;font-size:17px}
-.why{background:color-mix(in srgb,var(--c) 8%%,transparent);border-radius:10px;padding:10px 14px}
-.fixbox{border-left:3px solid var(--ok);padding-left:12px}
-.cols{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
-.verdict{margin-top:28px;padding:26px 28px;border-radius:14px;background:var(--surface);border-left:6px solid var(--vcolor)}
-.verdict h2{margin:0;font-size:26px;color:var(--vcolor)}
-.verdict p{margin:8px 0 0;max-width:760px}
-.cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:16px}
-.card{background:var(--surface);border-radius:12px;padding:14px 16px;border-top:4px solid var(--c)}
-.card .n{font-size:32px;font-weight:700;color:var(--c);line-height:1.1}
-.card .l{color:var(--muted);font-size:14px}
-.card.zero{--c:var(--line)} .card.zero .n{color:var(--muted)}
-.prio{display:grid;gap:12px}
-.pcard{background:var(--surface);border-radius:12px;padding:18px 20px;display:grid;grid-template-columns:auto 1fr;gap:4px 16px}
-.pcard .num{grid-row:span 3;font-size:28px;font-weight:700;color:var(--c);min-width:44px;text-align:center}
+h3.cat{margin:30px 0 12px;font-size:17px;display:flex;align-items:center;gap:10px}
+h3.cat .muted{background:var(--chip);border-radius:999px;padding:0 10px;font-size:13px}
+.why{background:color-mix(in srgb,var(--c) 8%%,transparent);border-radius:12px;padding:12px 16px}
+.fixbox{border-left:3px solid var(--ok);padding:2px 0 2px 14px}
+.cols{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
 .pcard h3{font-size:17px}
-.pcard .why{color:var(--muted);font-size:14.5px}
-.pcard .fix{font-size:15px}
-.pcard .fix b{color:var(--primary)}
-.badge{display:inline-block;padding:1px 9px;border-radius:999px;font-size:12.5px;font-weight:600;color:var(--c);background:color-mix(in srgb,var(--c) 15%%,transparent);white-space:nowrap}
+.badge{display:inline-block;padding:1px 10px;border-radius:999px;font-size:12.5px;font-weight:650;color:var(--c);background:color-mix(in srgb,var(--c) 15%%,transparent);white-space:nowrap}
 .badge.full{background:var(--c);color:#fff}
-.lv-critical{--c:var(--critical)} .lv-high{--c:var(--high)} .lv-medium{--c:var(--medium)} .lv-low{--c:var(--low)}
-.matrix{display:grid;grid-template-columns:auto repeat(5,56px);gap:4px;align-items:center;font-size:13px}
-.matrix .cell{height:44px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:700;background:color-mix(in srgb,var(--c) 14%%,transparent);color:var(--c)}
-.matrix .cell.has{background:var(--c);color:#fff;font-size:16px}
+.lv-critical{--c:var(--critical)} .lv-high{--c:var(--high)} .lv-medium{--c:var(--medium)} .lv-low{--c:var(--low)} .lv-ok{--c:var(--ok)}
+.matrix{display:grid;grid-template-columns:auto repeat(5,minmax(48px,64px));gap:5px;align-items:center;font-size:13px}
+.matrix .cell{height:48px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-weight:700;background:color-mix(in srgb,var(--c) 14%%,transparent);color:var(--c)}
+.matrix .cell.has{background:var(--c);color:#fff;font-size:17px}
 .matrix .ax{color:var(--muted);text-align:center}
-.mwrap{display:flex;gap:32px;flex-wrap:wrap;align-items:center}
-.mexp{max-width:420px;color:var(--muted);font-size:15px}
+.mwrap{display:flex;gap:40px;flex-wrap:wrap;align-items:center;background:var(--surface);border-radius:16px;padding:22px 26px;box-shadow:var(--shadow);border:1px solid var(--line)}
+.mexp{max-width:480px;color:var(--muted);font-size:15px}
 .mexp b{color:var(--text)}
-table{width:100%%;border-collapse:collapse;font-size:14px;background:var(--surface);border-radius:12px;overflow:hidden}
-th{text-align:left;font-weight:600;color:var(--muted);font-size:12.5px;text-transform:uppercase;letter-spacing:.04em;padding:10px 12px;border-bottom:1px solid var(--line)}
-td{padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+.twrap{overflow-x:auto;border-radius:16px;box-shadow:var(--shadow);border:1px solid var(--line);background:var(--surface)}
+table{width:100%%;border-collapse:collapse;font-size:14px}
+th{text-align:left;font-weight:650;color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.05em;padding:12px 14px;border-bottom:1px solid var(--line);background:color-mix(in srgb,var(--muted) 8%%,transparent);white-space:nowrap}
+td{padding:11px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+tbody tr:hover td{background:color-mix(in srgb,var(--muted) 6%%,transparent)}
 tr:last-child td{border-bottom:0}
 td.num{text-align:center;white-space:nowrap}
 td .ev{color:var(--muted);font-size:13px;word-break:break-word}
 td.el{max-width:240px;word-break:break-all;overflow-wrap:anywhere}
-table td:nth-child(3){min-width:200px}
-table td:nth-child(4){max-width:320px}
-.twrap{overflow-x:auto;border-radius:12px}
-details.f{background:var(--surface);border-radius:12px;margin-bottom:10px;border-left:4px solid var(--c)}
-details.f summary{cursor:pointer;list-style:none;padding:14px 18px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+table td:nth-child(3){min-width:220px}
+table td:nth-child(4){max-width:340px}
+details.f{background:var(--surface);border-radius:16px;margin-bottom:12px;border:1px solid var(--line);border-left:5px solid var(--c);box-shadow:var(--shadow)}
+details.f summary{cursor:pointer;list-style:none;padding:15px 20px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
 details.f summary::-webkit-details-marker{display:none}
 details.f summary::before{content:"▸";color:var(--muted);transition:transform .15s}
 details.f[open] summary::before{transform:rotate(90deg)}
+details.f summary:hover{background:color-mix(in srgb,var(--muted) 5%%,transparent);border-radius:16px}
 details.f summary .t{font-weight:600;flex:1;min-width:240px}
-details.f .body{padding:0 18px 16px 42px;display:grid;gap:10px}
-.k{color:var(--primary);font-weight:600;font-size:13px;text-transform:uppercase;letter-spacing:.04em}
+details.f .body{padding:2px 22px 20px 44px;display:grid;gap:14px}
+.meter{flex:none;width:72px;height:6px;border-radius:3px;background:var(--faint);overflow:hidden}
+.meter i{display:block;height:100%%;background:var(--c)}
+.k{color:var(--primary);font-weight:650;font-size:12.5px;text-transform:uppercase;letter-spacing:.05em;margin-bottom:2px}
 ul.evl{margin:4px 0 0;padding-left:18px}
 ul.evl li{word-break:break-word}
-.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
-.box{background:var(--surface);border-radius:12px;padding:16px 18px}
-.box h3{font-size:15px;margin-bottom:8px;color:var(--primary)}
+.grid3{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;align-items:start}
+.box{background:var(--surface);border-radius:16px;padding:18px 20px;box-shadow:var(--shadow);border:1px solid var(--line)}
+.box h3{font-size:14px;margin-bottom:10px;color:var(--primary);text-transform:uppercase;letter-spacing:.05em}
 .chips{display:flex;flex-wrap:wrap;gap:6px}
-.chip{background:var(--chip);border-radius:999px;padding:2px 10px;font-size:13.5px}
-.src{display:flex;justify-content:space-between;border-bottom:1px solid var(--line);padding:6px 0}
+.chip{background:var(--chip);border-radius:999px;padding:2px 11px;font-size:13.5px}
+.src{display:flex;justify-content:space-between;border-bottom:1px solid var(--line);padding:7px 0}
 .src:last-child{border-bottom:0}
-.ok{color:var(--ok)} .warn{color:var(--medium)} .muted{color:var(--muted)}
 .howto{color:var(--muted)} .howto b{color:var(--text)}
-footer{margin-top:56px;color:var(--muted);font-size:13px;border-top:1px solid var(--line);padding-top:16px}
-@media (max-width:760px){.grid2,.plan,.cols,ul.good{grid-template-columns:1fr}.hero{flex-direction:column;align-items:flex-start}}
-@media print{.toc{display:none}body{background:#fff;color:#111}details.f{break-inside:avoid}details.f .body{display:grid}.verdict,.card,.pcard,.box,table,details.f{background:#fff;border:1px solid #ddd}}
+footer{margin-top:64px;color:var(--muted);font-size:13px;border-top:1px solid var(--line);padding-top:18px;display:flex;gap:12px;align-items:center}
+footer .logo{width:28px;height:28px;object-fit:contain}
+@media (max-width:1180px){.shell{grid-template-columns:1fr;gap:0}.side{position:static;height:auto;padding:20px 0 0;overflow:visible}.toc{flex-direction:row;flex-wrap:wrap}.side-meta{display:none}.hero{grid-template-columns:auto minmax(0,1fr)}.kpis{grid-column:1/-1;grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media (max-width:760px){.hero{grid-template-columns:1fr;text-align:left}.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.cols{grid-template-columns:1fr}.grade{text-align:left}.ring{margin:0}}
+@media print{.side{display:none}.shell{display:block;padding:0}body{background:#fff;color:#111}details.f{break-inside:avoid}details.f .body{display:grid}.hero,.col,.box,.twrap,details.f,ul.good,.mwrap{background:#fff;border:1px solid #ddd;box-shadow:none}}
 """
 
 
@@ -222,8 +228,14 @@ def passed_checks(doc: dict) -> list[str]:
     return ok
 
 
-def _verdict(doc: dict) -> tuple[str, str, str]:
+def _verdict(doc: dict, letter: str = "") -> tuple[str, str, str]:
+    """Titolo e testo seguono il voto: con A o B non si parla di "problemi seri" se i critici/alti non ci sono."""
     s = doc["summary"]
+    if letter in ("A", "B") and not (s.get("critical") or s.get("high")):
+        if not any(s.get(lvl) for lvl in LEVEL_ORDER):
+            return "ok", t("html.verdict.none"), t("html.verdict.none.text")
+        k = letter.lower()
+        return "ok", t(f"html.verdict.{k}"), t(f"html.verdict.{k}.text")
     for lvl in LEVEL_ORDER:
         if s.get(lvl):
             n = s[lvl]
@@ -267,50 +279,56 @@ def logo_uri() -> str:
     return "data:image/png;base64," + base64.b64encode(data).decode("ascii") if data[:8] == b"\x89PNG\r\n\x1a\n" else ""
 
 
-def _head(doc: dict, name: str) -> list[str]:
-    target = (doc["targets"] or ["?"])[0]
+def _side(doc: dict, name: str, ok_count: int) -> list[str]:
+    """Barra laterale fissa: logo, indice con i numeri e i dati della scansione."""
     meta = doc.get("meta") if isinstance(doc.get("meta"), dict) else {}
-    logo = f'<img class="logo" src="{logo_uri()}" alt="" width="72" height="72">' if logo_uri() else ""
-    out = [f'<header class="top"><div class="id">{logo}<div><div class="brand">APERNIX</div><h1>{_e(name)}</h1>'
-           f'<div class="url mono">{_e(target)}</div></div></div><div class="meta">'
-           f'<span>{_e(t("html.date"))} <b>{_e(doc["generated"].replace("T", " ")[:16])} UTC</b></span>']
+    logo = f'<img class="logo" src="{logo_uri()}" alt="" width="56" height="56">' if logo_uri() else ""
+    n = len(doc["findings"])
+    nav = [("plan", "html.nav.plan", ""), ("good", "html.nav.good", ok_count or ""), ("topics", "html.nav.topics", n or ""),
+           ("matrix", "html.nav.matrix", ""), ("table", "html.nav.table", n or ""), ("scope", "html.nav.scope", "")]
+    links = "".join(f'<a href="#{a}"><span>{_e(t(k))}</span>{f"<b>{c}</b>" if c != "" else ""}</a>' for a, k, c in nav)
+    rows = [(t("html.date"), doc["generated"].replace("T", " ")[:16] + " UTC")]
     for key, label in (("profile", "html.profile"), ("duration", "html.duration")):
         if meta.get(key):
-            out.append(f'<span>{_e(t(label))} <b>{_e(meta[key])}</b></span>')
-    out.append(f'<span>{_e(t("html.requests"))} <b>{_e(doc.get("requests", 0))}</b></span></div></header>')
-    nav = [("plan", "html.nav.plan"), ("good", "html.nav.good"), ("topics", "html.nav.topics"),
-           ("matrix", "html.nav.matrix"), ("table", "html.nav.table"), ("scope", "html.nav.scope")]
-    out.append('<nav class="toc">' + "".join(f'<a href="#{a}">{_e(t(k))}</a>' for a, k in nav) + "</nav>")
-    return out
+            rows.append((t(label), str(meta[key])))
+    rows.append((t("html.requests"), str(doc.get("requests", 0))))
+    info = "".join(f"<div><span>{_e(k)}</span><b>{_e(v)}</b></div>" for k, v in rows)
+    return [f'<aside class="side"><div class="brand-block">{logo}<div class="brand">APERNIX</div></div>'
+            f'<nav class="toc">{links}</nav><div class="side-meta">{info}</div></aside>']
+
+
+def _head(doc: dict, name: str) -> list[str]:
+    target = (doc["targets"] or ["?"])[0]
+    return [f'<header class="top"><div class="eyebrow">{_e(t("html.eyebrow"))}</div><h1>{_e(name)}</h1>'
+            f'<div class="url mono">{_e(target)}</div></header>']
 
 
 def _hero(doc: dict, ok_count: int) -> list[str]:
     findings = doc["findings"]
-    vlevel, vtitle, vtext = _verdict(doc)
     value, letter, role = score(findings)
+    vlevel, vtitle, vtext = _verdict(doc, letter)
     vcolor = "var(--ok)" if vlevel == "ok" else f"var(--{vlevel})"
-    counted = [f for f in findings if f.get("scored", True)]
+    counted = [f for f in findings if f.get("scored", True)]        # solo i problemi che pesano sul voto
     total = sum(f["risk"] for f in counted)
     insight = ""
     if len(counted) >= 3 and total:
-        # quanto rischio si toglie sistemando i primi problemi: dice dove conviene mettere le mani
         n = min(3, len(counted) - 1)
         pct = round(100 * sum(f["risk"] for f in counted[:n]) / total)
         insight = t("html.insight.top", n=n, pct=pct)
     key = "html.insight.ok.good" if letter in ("A", "B") else "html.insight.ok"
     good = t(key, n=ok_count, total=ok_count + len({f["check"] for f in findings})) if ok_count else ""
-    out = [f'<section class="hero" style="--vcolor:{vcolor}"><div class="grade lv-{role}" style="--c:var(--{role})">'
-           f'<div class="letter">{letter}</div><div class="pts">{value} {_e(t("html.score"))}</div></div>'
+    out = [f'<section class="hero" style="--vcolor:{vcolor}"><div class="grade lv-{role}">'
+           f'<div class="ring" style="--p:{value}"><div class="ring-in"><div class="letter">{letter}</div></div></div>'
+           f'<div class="pts">{value} / 100 · {_e(t("html.score"))}</div></div>'
            f'<div class="vtext"><h2>{_e(vtitle)}</h2><p>{_e(vtext)}</p>']
     if insight or good:
-        out.append('<p class="insight">' + " ".join(f"<span>{_e(x)}</span>" for x in (insight, good) if x) + "</p>")
-    out.append('<div class="counts">')
-    for lvl in LEVEL_ORDER:
-        n = doc["summary"].get(lvl, 0)
-        out.append(f'<span class="count lv-{lvl}{"" if n else " zero"}"><b>{n}</b> {_e(t("html.count." + lvl))}</span>')
-    out.append("</div>")
+        out.append('<p class="insight">' + "".join(f"<span>{_e(x)}</span>" for x in (insight, good) if x) + "</p>")
     if doc.get("unscored"):
         out.append(f'<p class="muted small">{_e(t("html.unscored", n=doc["unscored"]))}</p>')
+    out.append('</div><div class="kpis">')
+    for lvl in LEVEL_ORDER:
+        n = doc["summary"].get(lvl, 0)
+        out.append(f'<div class="kpi lv-{lvl}{"" if n else " zero"}"><b>{n}</b><span>{_e(t("html.count." + lvl))}</span></div>')
     out.append("</div></section>")
     return out
 
@@ -320,10 +338,17 @@ def _unscored_tag(f: dict) -> str:
 
 
 def _plan(findings: list[dict]) -> list[str]:
-    groups = (("now", ("critical", "high")), ("soon", ("medium",)), ("later", ("low",)))
+    """Da fare ora / presto / con calma contano solo i problemi che pesano sul voto; il resto va in "Da verificare"."""
+    scored = [(i, f) for i, f in enumerate(findings, 1) if f.get("scored", True)]
+    review = [(i, f) for i, f in enumerate(findings, 1) if not f.get("scored", True)]
+    groups = (("now", [x for x in scored if x[1]["level"] in ("critical", "high")]),
+              ("soon", [x for x in scored if x[1]["level"] == "medium"]),
+              ("later", [x for x in scored if x[1]["level"] == "low"]),
+              ("review", review))
     out = [f'<h2 id="plan">{_e(t("html.plan"))}</h2><p class="lead">{_e(t("html.plan.lead"))}</p><div class="plan">']
-    for key, levels in groups:
-        items = [(i, f) for i, f in enumerate(findings, 1) if f["level"] in levels]
+    for key, items in groups:
+        if key == "review" and not items:
+            continue
         out.append(f'<div class="col col-{key}"><h3>{_e(t("html.plan." + key))}'
                    f'<span>{_e(t("html.plan." + key + ".sub"))}</span></h3>')
         if not items:
@@ -361,7 +386,8 @@ def _topics(findings: list[dict]) -> list[str]:
             w = why(f)
             out.append(
                 f'<details class="f lv-{_e(f["level"])}" id="f{i}"{" open" if f["level"] in ("critical", "high") else ""}>'
-                f'<summary>{_badge(f, True)}<span class="t">{_e(f["title"])}</span>{_unscored_tag(f)}'
+                f'<summary>{_badge(f, True)}<span class="meter" aria-hidden="true"><i style="width:{min(100, f["risk"] * 4)}%"></i></span>'
+                f'<span class="t">{_e(f["title"])}</span>{_unscored_tag(f)}'
                 f'<span class="tag">{_e(t("effort." + effort(f["check"])))}</span></summary><div class="body">'
                 + (f'<div class="why"><div class="k">{_e(t("html.why"))}</div>{_e(w)}</div>' if w else "")
                 + f'<div class="fixbox"><div class="k">{_e(t("html.todo"))}</div>{_e(f["remediation"])}</div>'
@@ -400,7 +426,7 @@ def _table(findings: list[dict]) -> list[str]:
 
 def _scope(doc: dict) -> list[str]:
     out = [f'<h2 id="scope">{_e(t("html.scope"))}</h2><p class="lead">{_e(t("html.scope.lead"))}</p>'
-           '<div class="grid2">']
+           '<div class="grid3">']
     tech = []
     for fp in doc.get("fingerprint", []):
         if isinstance(fp, dict):
@@ -445,7 +471,9 @@ def to_html(doc: dict) -> str:
            f'<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; img-src data:">'
            f'<meta name="referrer" content="no-referrer">'
            f'<title>{_e(t("html.title"))} · {_e(name)}</title>'
-           f'<style>{css()}</style></head><body><main>']
+           f'<style>{css()}</style></head><body><div class="shell">']
+    out += _side(doc, name, len(ok))
+    out.append('<main>')
     out += _head(doc, name)
     out += _hero(doc, len(ok))
     out += _plan(findings)
@@ -455,7 +483,7 @@ def to_html(doc: dict) -> str:
             f'<div class="mwrap">{_matrix(findings)}<div class="mexp">{t("html.matrix.explain")}</div></div>']
     out += _table(findings)
     out += _scope(doc)
-    out.append(f'<footer>{_e(t("html.footer", version=doc.get("version", "?")))}</footer></main></body></html>')
+    out.append(f'<footer>{_e(t("html.footer", version=doc.get("version", "?")))}</footer></main></div></body></html>')
     return "".join(out)
 
 

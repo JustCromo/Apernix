@@ -9,15 +9,24 @@
   Un solo comando, un solo report: da fuori come un visitatore, da dentro come chi gestisce la macchina.
 </p>
 
-<p align="center">🇮🇹 Italiano · Linux · Python 3.11+ · <a href="SECURITY.md">Sicurezza</a> · <a href="LICENSE">MIT</a></p>
+<p align="center">
+  <img alt="Linux" src="https://img.shields.io/badge/Linux-supportato-2e7d4f?style=for-the-badge&logo=linux&logoColor=white">
+  <img alt="Python 3.11+" src="https://img.shields.io/badge/Python-3.11%2B-3776ab?style=for-the-badge&logo=python&logoColor=white">
+  <img alt="Lingua italiana" src="https://img.shields.io/badge/lingua-italiano-b3202a?style=for-the-badge">
+  <a href="LICENSE"><img alt="Licenza MIT" src="https://img.shields.io/badge/licenza-MIT-555?style=for-the-badge"></a>
+</p>
 
 <p align="center">
-  <a href="#installazione-rapida">Installazione rapida</a> ·
-  <a href="#guida-tecnica">Guida tecnica</a> ·
-  <a href="#come-leggere-il-report">Il report</a> ·
-  <a href="#sviluppi-futuri">Sviluppi futuri</a> ·
-  <a href="#riferimenti">Riferimenti</a>
+  <a href="#installazione-rapida"><img alt="Installazione rapida" src="https://img.shields.io/badge/%E2%86%92_Installazione_rapida-b3202a?style=flat-square"></a>
+  <a href="#guida-tecnica"><img alt="Guida tecnica" src="https://img.shields.io/badge/%E2%86%92_Guida_tecnica-1f2933?style=flat-square"></a>
+  <a href="#come-leggere-il-report"><img alt="Il report" src="https://img.shields.io/badge/%E2%86%92_Il_report-1f2933?style=flat-square"></a>
+  <a href="#sviluppi-futuri"><img alt="Sviluppi futuri" src="https://img.shields.io/badge/%E2%86%92_Sviluppi_futuri-1f2933?style=flat-square"></a>
+  <a href="#riferimenti"><img alt="Riferimenti" src="https://img.shields.io/badge/%E2%86%92_Riferimenti-1f2933?style=flat-square"></a>
+  <a href="SECURITY.md"><img alt="Sicurezza" src="https://img.shields.io/badge/%E2%86%92_Sicurezza-1f2933?style=flat-square"></a>
 </p>
+
+> [!TIP]
+> **Parti in 30 secondi:** `git clone`, `./install.sh --tools`, poi scrivi `apernix`. La dashboard trova da sola l'applicazione da controllare. Dettagli nell'[installazione rapida](#installazione-rapida).
 
 ---
 
@@ -152,7 +161,8 @@ Contano solo i problemi dell'applicazione: i segnali da verificare a mano e i se
 - **Guarda cosa succede davvero, non solo la configurazione**: l'utente del database è quello con cui l'app è *connessa ora* (`pg_stat_activity`), non il proprietario usato dalle migrazioni; l'utente di un container è quello del *processo in esecuzione* (`docker top`), perché molte immagini partono come root e poi passano a un utente normale (PostgreSQL, per esempio). Se non riesce a verificarlo lo dice nell'esito (`non testato`) e abbassa il rischio.
 - **Tiene conto delle difese già presenti**: `cap_drop: ALL`, filesystem in sola lettura, `no-new-privileges` e utente non root abbassano la probabilità di un problema del container, e le evidenze le elencano.
 - **Distingue l'app dalla macchina**: i servizi della macchina (SSH, altre porte) sono elencati in una categoria a parte e **non contano nel voto** (sono compito di Erinix e Vulpnix). La porta 80 di un sito servito in HTTPS sulla 443 è lo stesso server e non viene segnalata.
-- **I segnali "da verificare a mano"** (regole *audit* di semgrep, *blacklist* di bandit) sono elencati ma **non contano nel voto** finché non sono confermati: nel report hanno l'etichetta "non conta nel voto".
+- **I segnali "da verificare a mano"** hanno un criterio unico per semgrep e bandit: regole *audit*, *blacklist* o risultati con confidenza **non alta** sono elencati ma **non contano nel voto** finché non sono confermati. Nel report hanno l'etichetta "non conta nel voto" e stanno nella colonna **Da verificare** del piano d'azione.
+- **Il processo in esecuzione vince sulla Dockerfile**: se `docker top` mostra che il container gira già come utente non root, il "Dockerfile senza `USER`" non viene segnalato.
 - **Scarta le contraddizioni**: "il database ascolta su tutte le interfacce" non viene segnalato se i controlli sui container mostrano che il database non è raggiungibile da fuori.
 
 ---

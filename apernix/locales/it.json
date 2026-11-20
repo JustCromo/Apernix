@@ -616,5 +616,12 @@
   "doctor.use.ssh": "analisi interna di un'altra macchina via SSH",
   "doctor.hint.pip": "./install.sh --tools (dentro la cartella di Apernix)",
   "doctor.hint.trivy": "https://trivy.dev/latest/getting-started/installation/ (Arch: sudo pacman -S trivy)",
-  "doctor.hint.nuclei": "scarica il programma da https://github.com/projectdiscovery/nuclei/releases e mettilo in ~/.local/bin"
+  "doctor.hint.nuclei": "scarica il programma da https://github.com/projectdiscovery/nuclei/releases e mettilo in ~/.local/bin",
+  "html.verdict.a": "Ottimo stato: niente di serio",
+  "html.verdict.a.text": "Nessun problema critico o alto. Restano dettagli minori da rifinire quando hai tempo: l'applicazione regge bene i controlli eseguiti.",
+  "html.verdict.b": "Buono stato: qualcosa da migliorare",
+  "html.verdict.b.text": "Nessun problema critico o alto. Ci sono alcune protezioni in più da aggiungere: sono nel piano qui sotto, dalla più utile alla meno urgente.",
+  "html.plan.review": "Da verificare",
+  "html.plan.review.sub": "non contano nel voto",
+  "html.eyebrow": "Report di sicurezza"
 }

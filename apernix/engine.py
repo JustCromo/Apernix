@@ -76,6 +76,7 @@ class Run:
         self.cancel = cancel or threading.Event()
         self.res = ScanResult()
         self._web_done = 0
+        self.non_root: set[str] = set()
         client.cancel = self.cancel
         client.observer = self._observe
 
@@ -115,7 +116,7 @@ class Run:
         except Cancelled:
             self.res.cancelled = True
         self.add(correlate(self.res.findings))
-        self.res.findings = drop_contradictions(simplify(self.res.findings), self.res.sources)
+        self.res.findings = drop_contradictions(simplify(self.res.findings, self.non_root), self.res.sources)
         return self.res
 
     def _targets(self) -> None:
@@ -263,7 +264,7 @@ class Run:
             advance(t("dash.phase.inside.code"))
         if cfg.containers:
             self.emit("action", text=t("dash.act.containers", n=len(cfg.containers)))
-            found, reason = containers.run(tr, cfg.containers)
+            found, reason, self.non_root = containers.run_ex(tr, cfg.containers)
             self.add(found)
             status("docker", not reason, reason)
             advance(t("dash.phase.inside.containers"))

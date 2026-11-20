@@ -25,13 +25,13 @@ def doc_with(findings, sources=None, targets=("http://x/",), meta=None):
     return rpt.build(list(targets), findings, 3, extra, meta or {"name": "Lab"})
 
 
-LOGO_TAG = re.compile(r'<img class="logo" src="data:image/png;base64,[A-Za-z0-9+/=]+" alt="" width="72" height="72">')
+LOGO_TAG = re.compile(r'<img class="logo" src="data:image/png;base64,[A-Za-z0-9+/=]+" alt="" width="\d+" height="\d+">')
 
 
 def without_logo(html: str) -> str:
     """L'unica immagine ammessa è il logo di Apernix incorporato (data URI): tutto il resto deve restare testo."""
     out, n = LOGO_TAG.subn("", html)
-    assert n <= 1
+    assert n <= 2
     return out
 
 

@@ -108,9 +108,14 @@ def parse(data: bytes, src: str) -> list[Finding]:
         end = item.get("end") if isinstance(item.get("end"), dict) else {}
         if suppressed.covers(path, line, end.get("line") if isinstance(end.get("line"), int) else None):
             continue                                      # annotato dallo sviluppatore (# nosec / # nosemgrep)
-        note, signal = "", is_audit_rule(check_id)
-        if signal:                                        # segnale da verificare, non vulnerabilità confermata
+        # Criterio unico: un risultato dell'analisi statica pesa sul voto solo se non è una regola "audit" E lo
+        # strumento è molto sicuro (confidenza alta). Altrimenti è un segnale da verificare: elencato, non pesato.
+        confidence = _s(meta.get("confidence"), 10).upper()
+        note, signal = "", is_audit_rule(check_id) or confidence != "HIGH"
+        if is_audit_rule(check_id):
             impact, prob, note = min(impact, 3), min(prob, 2), " (segnale da verificare a mano)"
+        elif signal:
+            note = f" (confidenza {confidence.lower() or 'non indicata'}: da verificare a mano)"
         entries.append({"check": f"SAST-{rule}"[:64], "title": first_sentence(_s(extra.get("message"), 400)) or rule,
                         "where": f"{path}:{_s(start.get('line'), 8)}", "impact": impact, "prob": prob, "signal": signal,
                         "rule": f"regola {_s(item.get('check_id'), 150)}{note}"})
