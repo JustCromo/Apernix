@@ -20,6 +20,12 @@ def _f(check: str, element: str, impact: int, prob: int, evidence: list[str]) ->
                    source=SOURCE, evidence=evidence, pt="not_applicable", remediation=t(f"{check}.fix"))
 
 
+def _loopback(address: str) -> bool:
+    """Regole su 127.0.0.1 o ::1: raggiungibili solo dall'interno del container, non dalla rete."""
+    a = address.strip().lower()
+    return a.startswith(("127.", "::1", "localhost"))
+
+
 def query(tr: Transport, cfg: Internal, sql: str):
     argv = ["docker", "exec", cfg.db_container, "psql", "-U", cfg.db_user, "-d", cfg.db_name,
             "-X", "-At", "-F", SEP, "-v", "ON_ERROR_STOP=1", "-c", sql]
@@ -56,13 +62,14 @@ def run(tr: Transport, cfg: Internal):
             out.append(_f("DB-APP-PRIV", f"{el} ({name})", 3, 2, [t("ev.db.app_priv", role=name, flags=flags)]))
     listen = query(tr, cfg, "SHOW listen_addresses")
     if listen and listen[0] and listen[0][0].strip() in ("*", "0.0.0.0"):
-        out.append(_f("DB-LISTEN-ALL", el, 3, 2, [t("ev.db.listen", value=listen[0][0].strip())]))
+        out.append(_f("DB-LISTEN-ALL", el, 2, 1, [t("ev.db.listen", value=listen[0][0].strip())]))
     enc = query(tr, cfg, "SHOW password_encryption")
     if enc and enc[0] and enc[0][0].strip().lower() == "md5":
         out.append(_f("DB-PWENC-MD5", el, 3, 2, [t("ev.db.md5")]))
     hba = query(tr, cfg, "SELECT type, database, user_name, address, auth_method FROM pg_hba_file_rules")
     if hba:
-        trust = [r for r in hba if len(r) >= 5 and r[4].strip() == "trust" and r[0].strip() != "local"]
+        trust = [r for r in hba if len(r) >= 5 and r[4].strip() == "trust" and r[0].strip() != "local"
+                 and not _loopback(r[3])]
         if trust:
             ev = [f"{r[0]} {r[1]} {r[2]} {r[3]} trust"[:200] for r in trust[:5]]
             out.append(_f("DB-HBA-TRUST", el, 5, 4, ev))

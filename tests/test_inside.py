@@ -135,9 +135,44 @@ class TestSources(unittest.TestCase):
                 with self.assertRaises(ValueError, msg=f"{mod.__name__} {data!r}"):
                     mod.parse(data, *args)
 
+    def test_repeated_rule_is_one_finding(self):
+        rows = [{"check_id": "python.django.no-csrf", "path": f"/src/t/{i}.html", "start": {"line": i},
+                 "extra": {"severity": "WARNING", "message": "Manca csrf_token. Altro testo lungo."}}
+                for i in range(61)]
+        found = semgrep.parse(json.dumps({"results": rows}).encode(), "/src")
+        self.assertEqual(len(found), 1)
+        self.assertIn("+60 altri punti", found[0].element)
+        self.assertEqual(found[0].title, "Manca csrf_token.")
+        self.assertLessEqual(len(found[0].evidence), 10)
+
+    def test_non_security_rules_ignored(self):
+        rows = [{"check_id": "x.batch-import", "path": "/src/a.py", "start": {"line": 1},
+                 "extra": {"severity": "WARNING", "message": "performance", "metadata": {"category": "performance"}}},
+                {"check_id": "x.sqli", "path": "/src/a.py", "start": {"line": 2},
+                 "extra": {"severity": "ERROR", "message": "sql", "metadata": {"category": "security"}}}]
+        found = semgrep.parse(json.dumps({"results": rows}).encode(), "/src")
+        self.assertEqual([f.check for f in found], ["SAST-sqli"])
+
+    def test_tests_and_asserts_excluded_from_scans(self):
+        argv = semgrep.build_argv("/src")
+        self.assertIn("tests", argv)
+        self.assertEqual(argv[-1], "/src")
+        captured = {}
+        with mock.patch.object(bandit, "run_tool", lambda a, b, c, d=None: captured.setdefault("argv", a)):
+            bandit.scan("/src")
+        self.assertIn("B101", captured["argv"])
+        self.assertTrue(any("tests" in x for x in captured["argv"]))
+
+    def test_trivy_same_misconfig_on_many_files_is_one(self):
+        doc = {"Results": [{"Target": f"svc{i}/Dockerfile", "Misconfigurations": [
+            {"ID": "DS026", "Title": "Nessun HEALTHCHECK", "Severity": "LOW", "Message": "m"}]} for i in range(4)]}
+        found = trivy.parse(json.dumps(doc).encode())
+        self.assertEqual(len(found), 1)
+        self.assertIn("altri file", found[0].element)
+
     def test_flood_is_capped(self):
         many = {"results": [{"check_id": f"r{i}", "path": "a.py", "start": {"line": i},
-                             "extra": {"severity": "INFO", "message": "m"}} for i in range(500)]}
+                             "extra": {"severity": "INFO", "message": "m"}} for i in range(500)]}   # 500 regole diverse
         self.assertEqual(len(semgrep.parse(json.dumps(many).encode(), "/")), semgrep.MAX_FINDINGS)
 
 
@@ -239,6 +274,16 @@ class TestDatabase(unittest.TestCase):
         self.assertEqual(argv[:3], ["docker", "exec", "db"])
         self.assertIn("app", argv)
         self.assertIn("-X", argv)                       # niente ~/.psqlrc
+
+    def test_trust_only_on_loopback_is_not_reported(self):
+        tr = self.tr(**{"pg_hba_file_rules": f"host{self.S}all{self.S}all{self.S}127.0.0.1{self.S}trust\n"
+                                              f"host{self.S}all{self.S}all{self.S}::1{self.S}trust\n"
+                                              f"host{self.S}all{self.S}all{self.S}all{self.S}scram-sha-256\n"})
+        found, _ = database.run(tr, self.cfg)
+        self.assertNotIn("DB-HBA-TRUST", {f.check for f in found})
+        tr = self.tr(**{"pg_hba_file_rules": f"host{self.S}all{self.S}all{self.S}172.18.0.0/16{self.S}trust\n"})
+        found, _ = database.run(tr, self.cfg)
+        self.assertIn("DB-HBA-TRUST", {f.check for f in found})
 
     def test_garbage_rows(self):
         found, _ = database.run(self.tr(**{"FROM pg_roles": "riga\ncorta|\n\n"}), self.cfg)

@@ -14,10 +14,17 @@ MAX_FINDINGS = 100
 SEVERITY = {"ERROR": (4, 3), "WARNING": (3, 3), "INFO": (2, 2)}
 
 
+EXCLUDE = ("tests", "test", "test_*.py", "*_test.py", "node_modules", ".venv", "venv", "migrations")
+MAX_LOCATIONS = 8
+
+
 def build_argv(src: str) -> list[str]:
     # p/default = regole pubbliche per i problemi di sicurezza più comuni; metriche spente (nessun dato inviato).
-    return ["semgrep", "scan", "--config", "p/default", "--metrics", "off", "--json", "--quiet",
-            "--timeout", "30", "--max-target-bytes", "1000000", src]
+    argv = ["semgrep", "scan", "--config", "p/default", "--metrics", "off", "--json", "--quiet",
+            "--timeout", "30", "--max-target-bytes", "1000000"]
+    for pattern in EXCLUDE:
+        argv += ["--exclude", pattern]
+    return [*argv, src]
 
 
 def scan(src: str, max_time: float = 600, tick=None) -> ToolResult:
@@ -35,6 +42,38 @@ def rel(path: str, src: str) -> str:
         return path
 
 
+def first_sentence(text: str, limit: int = 140) -> str:
+    cut = text.replace("\n", " ").strip()
+    end = cut.find(". ")
+    if 0 < end < limit:
+        return cut[:end + 1]
+    return cut[:limit]
+
+
+def group(entries: list[dict], source: str) -> list[Finding]:
+    """Un solo problema per regola, con l'elenco dei punti: 60 ripetizioni sono un problema, non 60.
+
+    Ogni voce: {check, title, where, impact, prob, rule}."""
+    groups: dict[str, list[dict]] = {}
+    for e in entries:
+        groups.setdefault(e["check"], []).append(e)
+    out: list[Finding] = []
+    for check, items in groups.items():
+        items = list({e["where"]: e for e in items}.values())
+        first = items[0]
+        extra = len(items) - 1
+        element = first["where"] + (f" (+{extra} altri punti)" if extra else "")
+        evidence = [first["rule"]] + [f"file: {e['where']}" for e in items[:MAX_LOCATIONS]]
+        if len(items) > MAX_LOCATIONS:
+            evidence.append(f"... e altri {len(items) - MAX_LOCATIONS} punti")
+        out.append(Finding(
+            check=check, title=first["title"], element=element,
+            impact=max(e["impact"] for e in items), probability=max(e["prob"] for e in items), source=source,
+            evidence=evidence, pt="not_applicable", remediation=t("SAST.fix")))
+    out.sort(key=lambda f: -f.risk)
+    return out[:MAX_FINDINGS]
+
+
 def parse(data: bytes, src: str) -> list[Finding]:
     try:
         doc = json.loads(data)
@@ -42,29 +81,23 @@ def parse(data: bytes, src: str) -> list[Finding]:
         raise ValueError("json") from None
     results = doc.get("results") if isinstance(doc, dict) else None
     if not isinstance(results, list):
-        raise ValueError("json") from None
-    out: list[Finding] = []
-    seen: set[tuple[str, str]] = set()
-    for item in results:
+        raise ValueError("json")
+    entries = []
+    for item in results[:5000]:
         if not isinstance(item, dict):
             continue
         extra = item.get("extra") if isinstance(item.get("extra"), dict) else {}
+        meta = extra.get("metadata") if isinstance(extra.get("metadata"), dict) else {}
+        category = _s(meta.get("category")).lower()
+        if category and category != "security":          # performance, stile, ecc.: non sono problemi di sicurezza
+            continue
         start = item.get("start") if isinstance(item.get("start"), dict) else {}
         rule = _s(item.get("check_id"), 200).split(".")[-1]
         path = rel(_s(item.get("path"), 300), src)
         if not rule or not path:
             continue
-        where = f"{path}:{_s(start.get('line'), 8)}"
-        if (rule, where) in seen:
-            continue
-        seen.add((rule, where))
         impact, prob = SEVERITY.get(_s(extra.get("severity")).upper(), (2, 2))
-        out.append(Finding(
-            check=f"SAST-{rule}"[:64], title=_s(extra.get("message"), 200) or rule, element=where,
-            impact=impact, probability=prob, source=SOURCE,
-            evidence=[f"regola {_s(item.get('check_id'), 150)}", f"file: {where}"],
-            pt="not_applicable", remediation=t("SAST.fix"),
-        ))
-        if len(out) >= MAX_FINDINGS:
-            break
-    return out
+        entries.append({"check": f"SAST-{rule}"[:64], "title": first_sentence(_s(extra.get("message"), 400)) or rule,
+                        "where": f"{path}:{_s(start.get('line'), 8)}", "impact": impact, "prob": prob,
+                        "rule": f"regola {_s(item.get('check_id'), 150)}"})
+    return group(entries, SOURCE)

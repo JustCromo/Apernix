@@ -38,6 +38,7 @@ def parse(data: bytes) -> list[Finding]:
         raise ValueError("json") from None
     deps: list[Finding] = []
     other: list[Finding] = []
+    cfg_seen: dict[str, Finding] = {}
     for res in _list(doc.get("Results")):
         if not isinstance(res, dict):
             continue
@@ -67,12 +68,20 @@ def parse(data: bytes) -> list[Finding]:
             if sev not in SEVERITY or _s(m.get("Status")).upper() == "PASS":
                 continue
             impact, prob = SEVERITY[sev]
-            other.append(Finding(
-                check=f"CFG-{_s(m.get('ID'), 40)}"[:64], title=_s(m.get("Title"), 200) or "?", element=target,
+            check = f"CFG-{_s(m.get('ID'), 40)}"[:64]
+            if check in cfg_seen:                       # stessa regola su più file: un solo problema
+                prev = cfg_seen[check]
+                if len(prev.evidence) < 8:
+                    prev.evidence.append(f"file: {target}")
+                if "altri file" not in prev.element:
+                    prev.element += " (+ altri file)"
+                continue
+            cfg_seen[check] = Finding(
+                check=check, title=_s(m.get("Title"), 200) or "?", element=target,
                 impact=impact, probability=prob, source=SOURCE,
                 evidence=[_s(m.get("Message"), 250) or _s(m.get("ID"), 40), f"file: {target}"],
-                pt="not_applicable", remediation=_s(m.get("Resolution"), 400) or t("CFG.fix"),
-            ))
+                pt="not_applicable", remediation=_s(m.get("Resolution"), 400) or t("CFG.fix"))
+            other.append(cfg_seen[check])
         for sc in _list(res.get("Secrets")):
             if not isinstance(sc, dict):
                 continue
