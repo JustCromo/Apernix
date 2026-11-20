@@ -114,6 +114,15 @@ INTERNAL_TRANSPORTS = ("local", "ssh")
 _USER = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
 _CONTAINER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 _DBNAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
+_DIRNAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")      # un solo nome di cartella: niente "/"
+MAX_DIRS = 32
+
+
+def _dir_list(value, bad: Exception) -> tuple[str, ...]:
+    if (not isinstance(value, list) or len(value) > MAX_DIRS
+            or not all(isinstance(d, str) and _DIRNAME.fullmatch(d) and ".." not in d for d in value)):
+        raise bad
+    return tuple(value)
 _APP_PATH = re.compile(r"^/[A-Za-z0-9_./@+-]{0,4000}$")
 MAX_CONTAINERS = 16
 
@@ -131,6 +140,8 @@ class Internal:
     db_container: str = ""               # container del database (PostgreSQL)
     db_user: str = ""
     db_name: str = ""
+    ignore_dirs: tuple[str, ...] = ()    # cartelle di primo livello da NON analizzare (oltre a tools, docs...)
+    keep_dirs: tuple[str, ...] = ()      # cartelle di serie ignorate che invece vanno analizzate
 
 
 @dataclass(frozen=True)
@@ -303,7 +314,10 @@ def parse_internal(sec: object, base_dir: str = ".") -> "Internal | None":
         raise bad
     if not (path or containers or db_container):
         raise bad
-    return Internal(transport, path, host, user, port, key, tuple(containers), db_container, db_user, db_name)
+    ignore_dirs = _dir_list(sec.get("ignore_dirs", []), bad)
+    keep_dirs = _dir_list(sec.get("keep_dirs", []), bad)
+    return Internal(transport, path, host, user, port, key, tuple(containers), db_container, db_user, db_name,
+                    ignore_dirs, keep_dirs)
 
 
 def scope_from_dict(doc: dict, base_dir: str = ".") -> Scope:

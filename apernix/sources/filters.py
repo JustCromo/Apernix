@@ -15,9 +15,15 @@ DEV_DIRS = frozenset({"tools", "scripts", "script", "docs", "doc", "examples", "
 _MANIFESTS = ("requirements.txt", "requirements-prod.txt", "pyproject.toml", "Pipfile", "setup.py", "manage.py")
 
 
-def is_dev_path(path: str) -> bool:
+def dev_dirs(ignore: tuple[str, ...] = (), keep: tuple[str, ...] = ()) -> frozenset[str]:
+    """Le cartelle di sviluppo: quelle di serie, più `ignore_dirs` e meno `keep_dirs` dello scope.
+    Serve quando il codice vero sta in una cartella chiamata `scripts`, o quando `legacy` va saltata."""
+    return (DEV_DIRS | {d.lower() for d in ignore}) - {d.lower() for d in keep}
+
+
+def is_dev_path(path: str, dirs: frozenset[str] = DEV_DIRS) -> bool:
     parts = [p for p in path.replace("\\", "/").split("/") if p and p != "."]
-    return len(parts) > 1 and parts[0].lower() in DEV_DIRS
+    return len(parts) > 1 and parts[0].lower() in dirs
 
 
 def uses_django(src: str, max_depth: int = 3) -> bool:

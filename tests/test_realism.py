@@ -9,7 +9,7 @@ from apernix import report as rpt
 from apernix.inside import containers, database
 from apernix.models import Finding
 from apernix.report_html import score, to_html
-from apernix.scope import parse_internal
+from apernix.scope import ScopeError, parse_internal
 from apernix.sources import bandit, nmap, nuclei, semgrep
 from apernix.sources.filters import Suppressions
 from tests.helpers import tmpdir
@@ -280,6 +280,58 @@ class TestDockerfileVsRunningProcess(unittest.TestCase):
                     impact=3, probability=2, remediation="r", source="docker")
         out = simplify([f, c], frozenset({"racoonix-db"}))
         self.assertFalse([x for x in out if x.check == "CFG-DS-0002" and "db/Dockerfile" in x.element])
+
+
+class TestConfigurableDirs(unittest.TestCase):
+    def internal(self, **extra):
+        return parse_internal({"transport": "local", "path": "/x", **extra}, ".")
+
+    def test_defaults_and_overrides(self):
+        from apernix.sources.filters import DEV_DIRS, dev_dirs, is_dev_path
+        self.assertEqual(dev_dirs(), DEV_DIRS)
+        self.assertTrue(is_dev_path("scripts/a.py"))
+        d = dev_dirs(ignore=("Legacy",), keep=("scripts",))
+        self.assertTrue(is_dev_path("legacy/a.py", d))                 # aggiunta dallo scope (maiuscole ininfluenti)
+        self.assertFalse(is_dev_path("scripts/a.py", d))               # tolta dalle cartelle ignorate
+        self.assertTrue(is_dev_path("tools/a.py", d))                  # le altre restano
+        self.assertFalse(is_dev_path("app/a.py", d))
+
+    def test_scope_parses_and_defaults_empty(self):
+        cfg = self.internal(ignore_dirs=["legacy"], keep_dirs=["scripts"])
+        self.assertEqual((cfg.ignore_dirs, cfg.keep_dirs), (("legacy",), ("scripts",)))
+        self.assertEqual(self.internal().ignore_dirs, ())
+
+    def test_scope_rejects_malicious_dirs(self):
+        for bad in (["../etc"], ["a/b"], ["/abs"], [""], [1], "tools", ["x"] * 33, ["a..b"], ["-rf"],
+                    ["a\nb"], ["tools\n"]):
+            with self.assertRaises(ScopeError, msg=repr(bad)):
+                self.internal(ignore_dirs=bad)
+            with self.assertRaises(ScopeError, msg=repr(bad)):
+                self.internal(keep_dirs=bad)
+
+    def test_parsers_use_given_dirs(self):
+        row = {"test_id": "B101", "test_name": "assert_used", "issue_text": "x", "issue_severity": "LOW",
+               "issue_confidence": "HIGH", "filename": "/src/app/scripts/a.py", "line_number": 3}
+        data = json.dumps({"results": [row]}).encode()
+        self.assertEqual(bandit.parse(data, "/src/app"), [])
+        from apernix.sources.filters import dev_dirs
+        self.assertTrue(bandit.parse(data, "/src/app", dev_dirs(keep=("scripts",))))
+
+
+class TestUnsupportedDatabase(unittest.TestCase):
+    def test_non_postgres_is_reported_clearly(self):
+        cfg = parse_internal({"transport": "local", "db_container": "mysql-1", "db_user": "u",
+                              "db_name": "d"}, ".")
+        tr = FakeTransport({})                      # ogni comando docker fallisce: niente psql nel container
+        found, reason = database.run(tr, cfg)
+        self.assertEqual((found, reason), ([], "not_postgres"))
+
+    def test_postgres_failing_query_stays_failed(self):
+        cfg = parse_internal({"transport": "local", "db_container": "pg-1", "db_user": "u",
+                              "db_name": "d"}, ".")
+        tr = FakeTransport({"--version": "psql (PostgreSQL) 16"})
+        found, reason = database.run(tr, cfg)
+        self.assertEqual((found, reason), ([], "failed"))
 
 
 if __name__ == "__main__":

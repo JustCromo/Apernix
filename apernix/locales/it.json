@@ -623,5 +623,6 @@
   "html.verdict.b.text": "Nessun problema critico o alto. Ci sono alcune protezioni in più da aggiungere: sono nel piano qui sotto, dalla più utile alla meno urgente.",
   "html.plan.review": "Da verificare",
   "html.plan.review.sub": "non contano nel voto",
-  "html.eyebrow": "Report di sicurezza"
+  "html.eyebrow": "Report di sicurezza",
+  "source.not_postgres": "database non supportato: Apernix controlla solo PostgreSQL"
 }

@@ -9,7 +9,7 @@ import json
 
 from apernix.i18n import t
 from apernix.models import Finding
-from apernix.sources.filters import is_dev_path
+from apernix.sources.filters import DEV_DIRS, is_dev_path
 from apernix.sources.semgrep import _s
 from apernix.tools import ToolResult, run_tool
 
@@ -30,7 +30,7 @@ def _list(value: object) -> list:
     return value if isinstance(value, list) else []
 
 
-def parse(data: bytes) -> list[Finding]:
+def parse(data: bytes, dev_dirs: frozenset[str] = DEV_DIRS) -> list[Finding]:
     try:
         doc = json.loads(data)
     except (json.JSONDecodeError, UnicodeDecodeError, RecursionError):
@@ -44,7 +44,7 @@ def parse(data: bytes) -> list[Finding]:
         if not isinstance(res, dict):
             continue
         target = _s(res.get("Target"), 200)
-        if is_dev_path(target):
+        if is_dev_path(target, dev_dirs):
             continue
         for v in _list(res.get("Vulnerabilities")):
             if not isinstance(v, dict):

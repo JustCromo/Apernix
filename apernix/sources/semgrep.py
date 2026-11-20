@@ -7,7 +7,7 @@ import os
 
 from apernix.i18n import t
 from apernix.models import Finding
-from apernix.sources.filters import Suppressions, is_audit_rule, is_dev_path, uses_django
+from apernix.sources.filters import DEV_DIRS, Suppressions, is_audit_rule, is_dev_path, uses_django
 from apernix.tools import ToolResult, run_tool
 
 SOURCE = "semgrep"
@@ -76,7 +76,7 @@ def group(entries: list[dict], source: str) -> list[Finding]:
     return out[:MAX_FINDINGS]
 
 
-def parse(data: bytes, src: str) -> list[Finding]:
+def parse(data: bytes, src: str, dev_dirs: frozenset[str] = DEV_DIRS) -> list[Finding]:
     try:
         doc = json.loads(data)
     except (json.JSONDecodeError, UnicodeDecodeError, RecursionError):
@@ -98,7 +98,7 @@ def parse(data: bytes, src: str) -> list[Finding]:
         start = item.get("start") if isinstance(item.get("start"), dict) else {}
         rule = _s(item.get("check_id"), 200).split(".")[-1]
         path = rel(_s(item.get("path"), 300), src)
-        if not rule or not path or is_dev_path(path):
+        if not rule or not path or is_dev_path(path, dev_dirs):
             continue
         check_id = _s(item.get("check_id"), 200)
         if ".django." in check_id and not django:         # regole Django su un'app che non usa Django: falso allarme

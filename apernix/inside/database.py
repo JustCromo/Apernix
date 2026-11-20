@@ -55,7 +55,9 @@ def run(tr: Transport, cfg: Internal):
     roles = query(tr, cfg, "SELECT rolname, rolsuper, rolcreaterole, rolcreatedb, rolreplication, rolcanlogin "
                            "FROM pg_roles WHERE rolname NOT LIKE 'pg\\_%' ORDER BY rolname")
     if roles is None:
-        return [], "failed"
+        # psql assente nel container: non è PostgreSQL (MySQL, MariaDB...): lo si dice, senza falsi "a posto".
+        probe = tr.run(["docker", "exec", cfg.db_container, "psql", "--version"], timeout=30)
+        return [], ("failed" if probe.ok else "not_postgres")
     out: list[Finding] = []
     active = active_roles(tr, cfg) or set()      # vuoto = nessuna connessione visibile: non si sa chi usa l'app
     for row in roles:

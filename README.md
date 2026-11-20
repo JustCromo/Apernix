@@ -232,7 +232,11 @@ containers = ["racoonix-app-1", "racoonix-db-1"]   # container Docker da control
 db_container = "racoonix-db-1"              # container PostgreSQL
 db_user = "racoonix"                        # ruolo con cui Apernix legge il database (di solito quello del compose)
 db_name = "racoonix"
+ignore_dirs = ["legacy"]                    # facoltativo: cartelle di primo livello del codice da NON analizzare
+keep_dirs = ["scripts"]                     # facoltativo: cartelle ignorate di serie che invece vanno analizzate
 ```
+
+`ignore_dirs` e `keep_dirs` regolano il filtro anti-rumore: di serie l'analisi del codice salta `tools`, `scripts`, `docs`, `examples`, `build`, `dist`, `vendor`... (script di sviluppo, non l'app in produzione). Se il tuo codice vero sta in una di quelle cartelle, mettila in `keep_dirs`; se vuoi saltarne altre, usa `ignore_dirs`. Sono solo nomi di cartella (niente `/`).
 
 Per un'altra macchina si aggiungono i dati SSH:
 
@@ -353,15 +357,20 @@ ruff check .                              # controllo dello stile (opzionale)
 
 - La **verifica attiva (PT)** è non distruttiva e per ora si limita a confermare ciò che Apernix e le sue fonti hanno già osservato davvero in una risposta. Prove più profonde (iniezioni, credenziali deboli, controllo degli accessi dopo il login) **non sono ancora implementate**: sono tra gli [sviluppi futuri](#sviluppi-futuri).
 - La parte dell'applicazione protetta da login non viene vista dall'esterno; l'analisi interna la copre via codice, database e log.
-- L'analisi del database supporta **PostgreSQL** in Docker; MySQL/MariaDB e database non containerizzati sono futuri.
+- L'analisi del database supporta **solo PostgreSQL in Docker**. Con MySQL, MariaDB o altro il report lo dice chiaramente ("database non supportato") invece di dare un falso "a posto"; i database non containerizzati sono futuri.
+- L'**utente del processo** (root o no) si verifica solo per i container Docker, con `docker top`. Per un'app avviata con systemd o a mano il controllo non c'è e il report lo segna come *non testato*.
+- Il **voto** è calibrato su poche applicazioni di prova: è un'indicazione per capire da dove partire, non una certificazione.
+- Le verifiche dall'interno (semgrep, trivy, docker, psql) dipendono dagli strumenti installati sulla macchina: `apernix doctor` dice cosa manca e il report elenca quali fonti hanno funzionato.
 - La **modalità sistema** (analisi della macchina) è demandata a Erinix e Vulpnix.
 - Solo Linux; interfaccia solo in italiano per ora.
-- semgrep può dare falsi positivi: ogni risultato indica la regola e il punto del codice da verificare a mano. Le cartelle escluse non vengono analizzate: se l'app vive in una di esse, il codice non viene visto.
+- semgrep può dare falsi positivi: ogni risultato indica la regola e il punto del codice da verificare a mano. Le cartelle escluse di serie (`tools`, `scripts`, `docs`, `examples`, `build`, `dist`, `vendor`...) non vengono analizzate: se l'app vive in una di esse, aggiungila a `keep_dirs` nello scope (vedi sotto).
 
 ## Sviluppi futuri
 
 - **Penetration Testing più profondo**, sempre non distruttivo: iniezioni e XSS con dati innocui, credenziali di prova fornite dal proprietario, controllo dei permessi tra utenti e ruoli.
 - **Più database e più server**: MySQL/MariaDB, database non containerizzati, analisi della configurazione del web server (Caddy, nginx).
+- **Utente del processo anche senza Docker** (app avviate con systemd o a mano), leggendo il processo in ascolto sulla porta.
+- **Provare Apernix su più bersagli** (per esempio OWASP Juice Shop e DVWA in Docker) per tarare meglio voto e filtri.
 - **Modalità sistema** e interfaccia unica con Vulpnix, Erinix e Strinix (Nemirix).
 - **Confronto tra due report** (cosa è migliorato), lingua inglese, esportazione PDF.
 - **Test e scansioni automatici** su GitHub Actions a ogni modifica.

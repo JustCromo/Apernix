@@ -317,7 +317,7 @@ class TestDatabase(unittest.TestCase):
         self.assertEqual(database.run(tr, self.cfg), ([], ""))
 
     def test_unreachable(self):
-        self.assertEqual(database.run(FakeTransport({}), self.cfg), ([], "failed"))
+        self.assertEqual(database.run(FakeTransport({}), self.cfg), ([], "not_postgres"))
 
     def test_command_is_literal_argv(self):
         tr = self.tr()

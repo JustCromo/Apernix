@@ -37,6 +37,8 @@ timeout = 10         # secondi di attesa per risposta (1 - 120)
 # db_user = "app"                # ruolo con cui Apernix LEGGE il database (di solito quello del compose). Quale ruolo usa
 #                                # davvero l'app lo legge da solo dalle connessioni attive; meglio un ruolo di sola lettura
 # db_name = "racoonix"
+# ignore_dirs = ["legacy"]       # cartelle di primo livello del codice da NON analizzare (oltre a tools, docs, scripts, vendor...)
+# keep_dirs = ["scripts"]        # cartelle normalmente ignorate che invece contengono codice dell'app
 #
 # Solo per transport = "ssh" (solo chiave, mai password; l'host deve già essere in ~/.ssh/known_hosts):
 # host = "192.168.1.50"

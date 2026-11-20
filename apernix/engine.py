@@ -28,8 +28,9 @@ from apernix.i18n import t
 from apernix.inside import containers, database, logs
 from apernix.inside.transport import make_transport, private_tmp
 from apernix.models import Finding
-from apernix.scope import Scope
+from apernix.scope import Internal, Scope
 from apernix.sources import bandit, nmap, nuclei, semgrep, trivy
+from apernix.sources.filters import dev_dirs
 from apernix.term import clean
 from apernix.tools import which
 from apernix.web import active, checks
@@ -260,7 +261,7 @@ class Run:
                     for name in ("semgrep", "bandit", "trivy"):
                         res.source(name, reason if reason in ("missing", "timeout", "too_big") else "failed")
                 else:
-                    self._code(src)
+                    self._code(src, cfg)
             advance(t("dash.phase.inside.code"))
         if cfg.containers:
             self.emit("action", text=t("dash.act.containers", n=len(cfg.containers)))
@@ -285,13 +286,14 @@ class Run:
         self.emit("progress", id="inside", frac=1.0, label="")
         self.phase("inside", "done", t("dash.note.inside_partial", n=len(bad)) if bad else "")
 
-    def _code(self, src: str) -> None:
+    def _code(self, src: str, cfg: Internal | None = None) -> None:
         res = self.res
+        dev = dev_dirs(cfg.ignore_dirs, cfg.keep_dirs) if cfg else dev_dirs()
         has_py = _has_python(src)
         for name, runner, parser, needed in (
-            ("semgrep", lambda: semgrep.scan(src, tick=self._quiet_tick), lambda d: semgrep.parse(d, src), True),
-            ("bandit", lambda: bandit.scan(src, tick=self._quiet_tick), lambda d: bandit.parse(d, src), has_py),
-            ("trivy", lambda: trivy.scan(src, tick=self._quiet_tick), trivy.parse, True),
+            ("semgrep", lambda: semgrep.scan(src, tick=self._quiet_tick), lambda d: semgrep.parse(d, src, dev), True),
+            ("bandit", lambda: bandit.scan(src, tick=self._quiet_tick), lambda d: bandit.parse(d, src, dev), has_py),
+            ("trivy", lambda: trivy.scan(src, tick=self._quiet_tick), lambda d: trivy.parse(d, dev), True),
         ):
             if not needed:
                 res.source(name, "skipped")

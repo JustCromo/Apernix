@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 
 from apernix.models import Finding
-from apernix.sources.filters import is_dev_path
+from apernix.sources.filters import DEV_DIRS, is_dev_path
 from apernix.sources.semgrep import _s, group, rel
 from apernix.tools import ToolResult, run_tool
 
@@ -20,7 +20,7 @@ def scan(src: str, max_time: float = 300, tick=None) -> ToolResult:
     return run_tool(argv, lambda path: ["-o", path], max_time, tick)
 
 
-def parse(data: bytes, src: str) -> list[Finding]:
+def parse(data: bytes, src: str, dev_dirs: frozenset[str] = DEV_DIRS) -> list[Finding]:
     try:
         doc = json.loads(data)
     except (json.JSONDecodeError, UnicodeDecodeError, RecursionError):
@@ -34,7 +34,7 @@ def parse(data: bytes, src: str) -> list[Finding]:
             continue
         tid = _s(item.get("test_id"), 12) or "B000"
         path = rel(_s(item.get("filename"), 300), src)
-        if is_dev_path(path):
+        if is_dev_path(path, dev_dirs):
             continue
         where = f"{path}:{_s(item.get('line_number'), 8)}"
         impact = LEVEL.get(_s(item.get("issue_severity")).upper(), 2)
