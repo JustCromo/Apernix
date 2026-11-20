@@ -12,6 +12,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 from dataclasses import dataclass
 
@@ -79,7 +80,8 @@ def run_tool(argv: list[str], out_flag_builder, timeout: float, tick=None) -> To
         return ToolResult(True, data)
 
 
-def run_capture(argv: list[str], timeout: float = 10, max_bytes: int = 1024 * 1024) -> ToolResult:
+def run_capture(argv: list[str], timeout: float = 10, max_bytes: int = 1024 * 1024,
+                merge_stderr: bool = False) -> ToolResult:
     """Come run_tool, ma per comandi che scrivono su stdout (es. docker ps, ss). Uscita limitata."""
     exe = which(argv[0])
     if exe is None:
@@ -87,9 +89,11 @@ def run_capture(argv: list[str], timeout: float = 10, max_bytes: int = 1024 * 10
     env = {k: os.environ[k] for k in SAFE_ENV_KEYS if k in os.environ}
     try:
         proc = subprocess.Popen([exe, *argv[1:]], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                stderr=subprocess.DEVNULL, env=env)
+                                stderr=subprocess.STDOUT if merge_stderr else subprocess.DEVNULL, env=env)
     except OSError:
         return ToolResult(False, reason="failed")
+    timer = threading.Timer(timeout, proc.kill)      # la lettura sotto non ha scadenza: ci pensa il timer
+    timer.start()
     try:
         data = proc.stdout.read(max_bytes + 1) if proc.stdout else b""
         too_big = len(data) > max_bytes
@@ -101,8 +105,12 @@ def run_capture(argv: list[str], timeout: float = 10, max_bytes: int = 1024 * 10
         proc.wait()
         return ToolResult(False, reason="timeout")
     finally:
+        timed_out = not timer.is_alive() and proc.returncode in (-9, None)
+        timer.cancel()
         if proc.stdout:
             proc.stdout.close()
+    if timed_out and not too_big:
+        return ToolResult(False, reason="timeout")
     if too_big:
         return ToolResult(False, reason="too_big")
     return ToolResult(proc.returncode == 0, data, "" if proc.returncode == 0 else "failed")

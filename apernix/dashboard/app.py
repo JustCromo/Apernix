@@ -37,7 +37,7 @@ from apernix.scope_write import add_target
 from apernix.term import clean
 from apernix.web.http import SafeClient
 
-PROFILES = (("web",), ("web", "nuclei", "nmap"))
+PROFILES = (("web",), ("web", "nuclei", "nmap", "inside"))
 
 
 def _private(host: str) -> bool:

@@ -136,6 +136,12 @@ WEB_CHECKS = ("WEB-HTTP-001", "WEB-HDR-HSTS", "WEB-HDR-CSP", "WEB-HDR-XFO", "WEB
               "WEB-LIST-001", "WEB-CORS-001", "WEB-METH-001")
 NET_CHECKS = ("NET-DB-EXPOSED", "NET-DOCKER-API", "NET-CLEARTEXT")
 CATEGORIES = (
+    ("chain", ("CHAIN-",)),
+    ("secrets", ("SEC-", "LOG-SECRETS")),
+    ("code", ("SAST-",)),
+    ("deps", ("DEP-",)),
+    ("config", ("CFG-", "CTR-", "DB-")),
+    ("logs", ("LOG-",)),
     ("exposure", ("WEB-EXP-", "WEB-LIST-", "WEB-ERR-")),
     ("network", ("NET-",)),
     ("known", ("NUC-",)),
@@ -166,9 +172,12 @@ def effort(check: str) -> str:
 
 
 def why(f: dict) -> str:
-    key = "NUC.why" if f["check"].startswith("NUC-") else f"{f['check']}.why"
-    text = t(key)
-    return "" if text == key else text
+    check = f["check"]
+    for key in (f"{check}.why", *(f"{g}.why" for g in ("NUC", "SAST", "DEP", "CFG", "SEC") if check.startswith(g + "-"))):
+        text = t(key)
+        if text != key:
+            return text
+    return ""
 
 
 def score(findings: list[dict]) -> tuple[int, str, str]:
@@ -193,6 +202,11 @@ def passed_checks(doc: dict) -> list[str]:
         ok += [c for c in NET_CHECKS if c not in found]
     if status.get("nuclei") == "ok" and not any(c.startswith("NUC-") for c in found):
         ok.append("NUC")
+    for src, prefixes, label in (("semgrep", ("SAST-",), "SAST"), ("trivy", ("DEP-",), "DEP"),
+                                 ("trivy", ("SEC-",), "SEC"), ("docker", ("CTR-",), "CTR"),
+                                 ("postgres", ("DB-",), "DB"), ("logs", ("LOG-",), "LOG")):
+        if status.get(src) == "ok" and not any(c.startswith(prefixes) for c in found) and label not in ok:
+            ok.append(label)
     return ok
 
 

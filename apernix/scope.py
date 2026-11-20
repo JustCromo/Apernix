@@ -110,6 +110,29 @@ def parse_target_url(raw: object) -> Target:
     return Target(url=url, scheme=scheme, host=host, port=port, path=path, name="")
 
 
+INTERNAL_TRANSPORTS = ("local", "ssh")
+_USER = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
+_CONTAINER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
+_DBNAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
+_APP_PATH = re.compile(r"^/[A-Za-z0-9_./@+-]{0,4000}$")
+MAX_CONTAINERS = 16
+
+
+@dataclass(frozen=True)
+class Internal:
+    """Come entrare nella macchina dove gira l'app, per guardarla da dentro (con autorizzazione)."""
+    transport: str                       # "local" (questa macchina) o "ssh"
+    path: str                            # cartella con il codice dell'app
+    host: str = ""                       # solo ssh
+    user: str = ""
+    port: int = 22
+    key: str = ""                        # chiave privata SSH (mai password)
+    containers: tuple[str, ...] = ()     # container Docker dell'app
+    db_container: str = ""               # container del database (PostgreSQL)
+    db_user: str = ""
+    db_name: str = ""
+
+
 @dataclass(frozen=True)
 class Scope:
     targets: tuple[Target, ...]
@@ -118,6 +141,7 @@ class Scope:
     timeout: float
     owner: str
     ports: str = "none"       # porte da far controllare a nmap sugli host dei bersagli
+    internal: "Internal | None" = None
 
     def allows(self, url: str) -> bool:
         """True solo se `url` cade dentro uno dei bersagli autorizzati."""
@@ -214,6 +238,74 @@ def _ca_path(raw: object, base_dir: str) -> str:
     return path
 
 
+def _key_path(raw: object, base_dir: str) -> str:
+    """Chiave SSH privata: file normale, piccolo, leggibile solo dal proprietario."""
+    if not isinstance(raw, str) or not raw or len(raw) > 4096 or "\x00" in raw:
+        raise ValueError("key")
+    path = os.path.normpath(os.path.join(base_dir, os.path.expanduser(raw)))
+    try:
+        st = os.stat(path)
+    except OSError as exc:
+        raise ValueError("key") from exc
+    if not stat.S_ISREG(st.st_mode) or st.st_size > 64 * 1024 or st.st_mode & 0o077:
+        raise ValueError("key")
+    return path
+
+
+def parse_internal(sec: object, base_dir: str = ".") -> "Internal | None":
+    if sec is None:
+        return None
+    bad = ScopeError("err.scope_invalid", reason_key="scope.reason.bad_internal")
+    if not isinstance(sec, dict):
+        raise bad
+    transport = sec.get("transport", "local")
+    path = sec.get("path", "")
+    if transport not in INTERNAL_TRANSPORTS or not isinstance(path, str):
+        raise bad
+    if transport == "local":
+        path = os.path.abspath(os.path.expanduser(path)) if path else ""
+        if "\x00" in path or len(path) > 4096:
+            raise bad
+    elif not _APP_PATH.match(path) or ".." in path.split("/"):
+        raise bad
+    host, user, port, key = "", "", 22, ""
+    if transport == "ssh":
+        host = sec.get("host", "")
+        user = sec.get("user", "")
+        port = sec.get("port", 22)
+        if not isinstance(host, str) or not valid_host(host.lower()):
+            raise bad
+        host = host.lower()
+        if not isinstance(user, str) or not _USER.match(user):
+            raise bad
+        if isinstance(port, bool) or not isinstance(port, int) or not 1 <= port <= 65535:
+            raise bad
+        try:
+            key = _key_path(sec.get("key"), base_dir)
+        except ValueError as exc:
+            raise ScopeError("err.scope_invalid", reason_key="scope.reason.bad_key") from exc
+    containers = sec.get("containers", [])
+    if (not isinstance(containers, list) or len(containers) > MAX_CONTAINERS
+            or not all(isinstance(c, str) and _CONTAINER.match(c) for c in containers)):
+        raise bad
+    db_container = sec.get("db_container", "")
+    db_user = sec.get("db_user", "")
+    db_name = sec.get("db_name", "")
+    if not (isinstance(db_container, str) and isinstance(db_user, str) and isinstance(db_name, str)):
+        raise bad
+    if db_container and not _CONTAINER.match(db_container):
+        raise bad
+    if db_user and not _DBNAME.match(db_user):
+        raise bad
+    if db_name and not _DBNAME.match(db_name):
+        raise bad
+    if db_container and not (db_user and db_name):
+        raise bad
+    if not (path or containers or db_container):
+        raise bad
+    return Internal(transport, path, host, user, port, key, tuple(containers), db_container, db_user, db_name)
+
+
 def scope_from_dict(doc: dict, base_dir: str = ".") -> Scope:
     auth = doc.get("authorization")
     if not isinstance(auth, dict) or auth.get("confirmed") is not True:
@@ -256,4 +348,5 @@ def scope_from_dict(doc: dict, base_dir: str = ".") -> Scope:
         timeout=_limit(limits, "timeout"),
         owner=owner[:128],
         ports=ports,
+        internal=parse_internal(doc.get("internal"), base_dir),
     )

@@ -145,7 +145,7 @@ class TestGuided(unittest.TestCase):
             sc = load_scope(g.scope_path)
             self.assertEqual(sc.rate, 20.0)          # bersaglio in rete privata: ritmo più alto
             self.assertEqual(sc.ports, "top1000")
-        self.assertEqual(calls, [("racoonix app", ("web", "nuclei", "nmap"))])
+        self.assertEqual(calls, [("racoonix app", ("web", "nuclei", "nmap", "inside"))])
 
     def test_nothing_found(self):
         with tmpdir() as d:

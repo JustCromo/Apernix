@@ -27,7 +27,7 @@ from apernix.tools import which
 from apernix.web.http import SafeClient
 
 _ESC = re.compile(r"(\x1b\[[0-9;]*m)")
-PROFILES = {"1": ("web",), "2": ("web", "nuclei", "nmap")}
+PROFILES = {"1": ("web",), "2": ("web", "nuclei", "nmap", "inside")}
 
 
 def prompt_text(text: str) -> str:
@@ -232,15 +232,17 @@ class Guided:
 
     def choose_phases(self, sc: Scope) -> tuple[str, ...]:
         avail = {"web": True, "nuclei": which("nuclei") is not None,
-                 "nmap": which("nmap") is not None and sc.ports != "none"}
+                 "nmap": which("nmap") is not None and sc.ports != "none",
+                 "inside": sc.internal is not None}
         on = dict(avail)
-        order = ("web", "nuclei", "nmap")
+        order = ("web", "nuclei", "nmap", "inside")
         while True:
             self.say("")
             for i, key in enumerate(order, 1):
                 note = ""
                 if not avail[key]:
-                    reason = t("g.missing") if which(key) is None else t("g.ports_none")
+                    reason = (t("g.no_internal") if key == "inside" else
+                              t("g.missing") if which(key) is None else t("g.ports_none"))
                     note = paint(f"  ({reason})", "dim")
                 self.say(f"  {i}) [{'x' if on[key] else ' '}] {t(f'g.phase.{key}', ports=sc.ports)}{note}")
             self.say(paint(f"  {t('g.phases_help')}", "dim"))

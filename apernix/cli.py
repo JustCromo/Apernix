@@ -134,7 +134,8 @@ def cmd_scope(o: Opts) -> int:
     return EXIT_OK
 
 
-PHASE_KEYS = {"web": "scan.phase.web", "nuclei": "scan.phase.nuclei", "nmap": "scan.phase.nmap"}
+PHASE_KEYS = {"web": "scan.phase.web", "nuclei": "scan.phase.nuclei", "nmap": "scan.phase.nmap",
+              "inside": "scan.phase.inside"}
 
 
 class Ticker:

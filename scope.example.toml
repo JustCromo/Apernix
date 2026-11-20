@@ -23,3 +23,22 @@ rate = 5             # richieste al secondo (0.1 - 50)
 max_requests = 300   # tetto di richieste per analisi (1 - 10000)
 timeout = 10         # secondi di attesa per risposta (1 - 120)
 # rate e timeout valgono anche per nuclei; max_requests conta solo le richieste di Apernix
+
+# ---------------------------------------------------------------------------------------------
+# ANALISI INTERNA DELL'APP (facoltativa). Serve il permesso di entrare nella macchina dove gira l'app.
+# Apernix guarda solo l'app (codice, dipendenze, container, database, log); la macchina intera
+# la analizzano Erinix e Vulpnix. Se questa sezione manca, la fase "Interno" viene saltata.
+#
+# [internal]
+# transport = "local"            # "local" = l'app gira su questa macchina, "ssh" = su un'altra
+# path = "/home/ivan/Racoonix"   # cartella con il codice dell'app (con ssh: percorso sulla macchina remota)
+# containers = ["racoonix-web-1", "racoonix-db-1"]   # container Docker da controllare (configurazione e log)
+# db_container = "racoonix-db-1" # container PostgreSQL (si usa docker exec, nessuna porta da aprire)
+# db_user = "app"                # utente del database: meglio uno di sola lettura creato per Apernix
+# db_name = "racoonix"
+#
+# Solo per transport = "ssh" (solo chiave, mai password; l'host deve già essere in ~/.ssh/known_hosts):
+# host = "192.168.1.50"
+# user = "pi"
+# port = 22
+# key = "~/.ssh/id_apernix"      # chmod 600; meglio una chiave dedicata con permessi minimi

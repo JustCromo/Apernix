@@ -23,17 +23,20 @@ from urllib.parse import urlsplit
 import requests
 
 from apernix import fingerprint as fpr
+from apernix.correlate import correlate
 from apernix.i18n import t
+from apernix.inside import containers, database, logs
+from apernix.inside.transport import make_transport, private_tmp
 from apernix.models import Finding
 from apernix.scope import Scope
-from apernix.sources import nmap, nuclei
+from apernix.sources import bandit, nmap, nuclei, semgrep, trivy
 from apernix.term import clean
 from apernix.tools import which
 from apernix.web import active, checks
 from apernix.web.http import BudgetExceeded, Cancelled, OutOfScope, SafeClient
 
-PHASES = ("web", "nuclei", "nmap")          # fasi che si possono scegliere
-FLOW = ("recon", "web", "nuclei", "nmap", "report")   # tutte le fasi mostrate nel flusso
+PHASES = ("web", "nuclei", "nmap", "inside")          # fasi che si possono scegliere
+FLOW = ("recon", "web", "nuclei", "nmap", "inside", "report")   # tutte le fasi mostrate nel flusso
 WEB_REQUESTS = 1 + len(active.EXPOSURES) + 2 + 4 + 2   # richieste previste dalla fase web
 NUCLEI_EXPECTED = 240.0                                # secondi tipici con -as
 NMAP_EXPECTED = {"top100": 40.0, "top1000": 120.0, "all": 900.0}
@@ -108,8 +111,10 @@ class Run:
         try:
             self._targets()
             self._nmap()
+            self._inside()
         except Cancelled:
             self.res.cancelled = True
+        self.add(correlate(self.res.findings))
         return self.res
 
     def _targets(self) -> None:
@@ -207,6 +212,116 @@ class Run:
             self.add(nmap.findings(host, ports, web_ports))
         ok = res.sources.get("nmap") == "ok"
         self.phase("nmap", "done" if ok else "fail", "" if ok else t("source." + res.sources.get("nmap", "failed")))
+
+
+    # ------------------------------------------------------- analisi interna
+    def _quiet_tick(self, elapsed: float, limit: float) -> None:
+        if self.cancel.is_set():
+            raise Cancelled()
+        self.emit("wait", elapsed=elapsed, limit=limit)
+
+    def _inside(self) -> None:
+        res, cfg = self.res, self.sc.internal
+        if "inside" not in self.phases:
+            self.phase("inside", "skip")
+            return
+        if cfg is None:
+            self.phase("inside", "skip", t("dash.note.no_internal"))
+            return
+        self.phase("inside", "start")
+        tr = make_transport(cfg)
+        if cfg.transport == "ssh":
+            self.emit("action", text=t("dash.act.ssh", user=cfg.user, host=cfg.host))
+            if not tr.check().ok:
+                res.source("ssh", "failed")
+                self.phase("inside", "fail", t("dash.note.ssh_fail"))
+                return
+            res.source("ssh", "ok")
+        steps = [("code", bool(cfg.path)), ("containers", bool(cfg.containers)),
+                 ("db", bool(cfg.db_container)), ("logs", bool(cfg.containers))]
+        total = max(1, sum(on for _, on in steps) + 1)
+        done = 0
+
+        def advance(label: str) -> None:
+            nonlocal done
+            done += 1
+            self.emit("progress", id="inside", frac=min(1.0, done / total), label=label)
+
+        def status(name: str, out_ok: bool, reason: str) -> None:
+            res.source(name, "ok" if out_ok else (reason or "failed"))
+
+        if cfg.path:
+            with private_tmp() as tmp:
+                self.emit("action", text=t("dash.act.source", path=cfg.path))
+                src, reason = tr.source(tmp)
+                if reason:
+                    for name in ("semgrep", "bandit", "trivy"):
+                        res.source(name, reason if reason in ("missing", "timeout", "too_big") else "failed")
+                else:
+                    self._code(src)
+            advance(t("dash.phase.inside.code"))
+        if cfg.containers:
+            self.emit("action", text=t("dash.act.containers", n=len(cfg.containers)))
+            found, reason = containers.run(tr, cfg.containers)
+            self.add(found)
+            status("docker", not reason, reason)
+            advance(t("dash.phase.inside.containers"))
+        if cfg.db_container:
+            self.emit("action", text=t("dash.act.db", name=cfg.db_container))
+            found, reason = database.run(tr, cfg)
+            self.add(found)
+            status("postgres", not reason, reason)
+            advance(t("dash.phase.inside.db"))
+        if cfg.containers:
+            self.emit("action", text=t("dash.act.logs"))
+            found, reason = logs.run(tr, cfg.containers)
+            self.add(found)
+            status("logs", not reason, reason)
+            advance(t("dash.phase.inside.logs"))
+        names = ("semgrep", "bandit", "trivy", "docker", "postgres", "logs")
+        bad = [n for n in names if res.sources.get(n) not in (None, "ok", "skipped")]
+        self.emit("progress", id="inside", frac=1.0, label="")
+        self.phase("inside", "done", t("dash.note.inside_partial", n=len(bad)) if bad else "")
+
+    def _code(self, src: str) -> None:
+        res = self.res
+        has_py = _has_python(src)
+        for name, runner, parser, needed in (
+            ("semgrep", lambda: semgrep.scan(src, tick=self._quiet_tick), lambda d: semgrep.parse(d, src), True),
+            ("bandit", lambda: bandit.scan(src, tick=self._quiet_tick), lambda d: bandit.parse(d, src), has_py),
+            ("trivy", lambda: trivy.scan(src, tick=self._quiet_tick), trivy.parse, True),
+        ):
+            if not needed:
+                res.source(name, "skipped")
+                continue
+            if which(name) is None:
+                res.source(name, "missing")
+                continue
+            self.emit("action", text=t(f"dash.act.{name}"))
+            out = runner()
+            if not out.ok:
+                res.source(name, out.reason or "failed")
+                continue
+            try:
+                found = parser(out.output)
+            except ValueError:
+                res.source(name, "unparsable")
+                continue
+            res.source(name, "ok")
+            self.add(found)
+
+
+def _has_python(src: str, limit: int = 20000) -> bool:
+    seen = 0
+    for _root, dirs, files in os.walk(src):
+        dirs[:] = [d for d in dirs if d not in (".git", "node_modules", ".venv", "venv")]
+        for name in files:
+            seen += 1
+            if name.endswith(".py"):
+                return True
+            if seen > limit:
+                return False
+    return False
 
 
 def run_scan(sc: Scope, client: SafeClient, phases=PHASES, emit=None, cancel=None) -> ScanResult:
