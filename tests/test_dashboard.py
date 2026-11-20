@@ -1,7 +1,7 @@
 import os
 import unittest
 
-from apernix.dashboard.app import Controller, _key_name, _xterm256
+from apernix.dashboard.app import Controller, _key_name, _xterm256, quiet_stderr
 from apernix.dashboard.state import DashState
 from apernix.dashboard.view import MIN_H, MIN_W, Canvas, Glyphs, draw
 from apernix.discover import Candidate
@@ -450,6 +450,28 @@ class TestHelpers(unittest.TestCase):
         self.assertEqual(_xterm256("#000000"), 16)
         self.assertEqual(_xterm256("#FFFFFF"), 231)
 
+
+
+class TestScreenStaysClean(unittest.TestCase):
+    def test_quiet_stderr_hides_and_restores(self):
+        import os
+        import warnings
+        before = os.fstat(2)
+        with quiet_stderr():
+            os.write(2, b"questa riga non deve comparire\n")      # finisce su /dev/null
+            warnings.warn("avviso finto", stacklevel=2)                           # e i warning sono spenti
+            self.assertNotEqual(os.fstat(2).st_ino, before.st_ino)
+        self.assertEqual(os.fstat(2).st_ino, before.st_ino)           # stderr tornato quello di prima
+
+    def test_discovery_silences_certificate_warning_everywhere(self):
+        import warnings
+
+        import urllib3
+
+        from apernix import discover  # noqa: F401  (l'import spegne l'avviso per tutto il programma)
+        cls = urllib3.exceptions.InsecureRequestWarning
+        ignored = [f for f in warnings.filters if f[0] == "ignore" and f[2] is cls]
+        self.assertTrue(ignored)                  # filtro globale, non legato a un thread
 
 if __name__ == "__main__":
     unittest.main()

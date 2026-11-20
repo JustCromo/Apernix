@@ -8,11 +8,13 @@
 
 from __future__ import annotations
 
+import contextlib
 import dataclasses
 import os
 import queue
 import threading
 import time
+import warnings
 
 from apernix import autoconf, tlsinfo
 from apernix import discover as disc
@@ -487,6 +489,30 @@ class Controller:
 KEYMAP = {"\t": "TAB", "\n": "ENTER", "\r": "ENTER", "\x1b": "ESC", "\x7f": "BACKSPACE", "\x08": "BACKSPACE"}
 
 
+@contextlib.contextmanager
+def quiet_stderr():
+    """Durante la dashboard nulla deve scrivere sul terminale oltre a curses (warning, messaggi di librerie):
+    ogni riga estranea sporca lo schermo. stderr va su /dev/null e torna normale all'uscita."""
+    if os.environ.get("APERNIX_DEBUG"):
+        yield
+        return
+    try:
+        saved = os.dup(2)
+        null = os.open(os.devnull, os.O_WRONLY)
+    except OSError:
+        yield
+        return
+    try:
+        os.dup2(null, 2)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            yield
+    finally:
+        os.dup2(saved, 2)
+        os.close(saved)
+        os.close(null)
+
+
 def run(scope_path: str, out_dir: str) -> int:
     import curses
     import locale
@@ -510,8 +536,13 @@ def run(scope_path: str, out_dir: str) -> int:
         stdscr.timeout(120)
         canvas_holder = {}
 
+        last_size = {"v": stdscr.getmaxyx()}
+
         def paint_all():
             h, w = stdscr.getmaxyx()
+            if (h, w) != last_size["v"]:        # finestra ridimensionata: si ridisegna tutto da zero
+                last_size["v"] = (h, w)
+                stdscr.clearok(True)
             stdscr.erase()
             canvas = _CursesCanvas(stdscr, w, h, roles, curses, ascii_only=not utf8)
             canvas_holder["c"] = canvas
@@ -529,6 +560,11 @@ def run(scope_path: str, out_dir: str) -> int:
                     ch = stdscr.get_wch()
                 except curses.error:
                     continue
+                if ch == curses.KEY_RESIZE or ch == "\x0c":        # resize o Ctrl-L: ridisegno completo
+                    if ch == curses.KEY_RESIZE:
+                        curses.update_lines_cols()
+                    stdscr.clearok(True)
+                    continue
                 key = _key_name(ch, curses)
                 if key == "ESC":
                     key = _read_escape(stdscr, curses)
@@ -539,7 +575,8 @@ def run(scope_path: str, out_dir: str) -> int:
         return 0
 
     try:
-        return curses.wrapper(main)
+        with quiet_stderr():
+            return curses.wrapper(main)
     except curses.error:
         return 2
     except Exception:

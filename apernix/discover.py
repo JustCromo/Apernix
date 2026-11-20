@@ -16,6 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
 import requests
+import urllib3
 
 from apernix.term import clean
 from apernix.tools import run_capture
@@ -96,6 +97,12 @@ def listening_ports(lan: str) -> list[tuple[str, int, str]]:
         if host:
             found.append((host, int(port), ""))
     return found
+
+
+# La scoperta prova i siti anche con certificati privati o scaduti (verify=False, volutamente): l'avviso di urllib3 non
+# serve e, scritto sullo schermo mentre la dashboard è aperta, lo rovina. catch_warnings non è thread-safe:
+# qui il filtro è globale.
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 def probe(host: str, port: int, timeout: float = 2.0) -> tuple[str, str, bool] | None:
