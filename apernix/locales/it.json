@@ -469,7 +469,7 @@
   "dash.act.bandit": "bandit controlla il codice Python",
   "dash.act.trivy": "trivy cerca dipendenze vulnerabili, segreti e configurazioni sbagliate",
   "dash.note.inside_partial": "{n} controlli non eseguiti",
-  "dash.phase.inside": "Analisi interna dell'app",
+  "dash.phase.inside": "Analisi interna",
   "dash.phase.inside.short": "Interno",
   "dash.phase.inside.about": "Apernix guarda l'app da dentro, con l'autorizzazione del proprietario: codice sorgente (semgrep, bandit), dipendenze e segreti (trivy), configurazione dei container Docker, ruoli e permessi del database e log. Funziona sulla stessa macchina o via SSH con chiave. L'analisi dell'intera macchina (hardening, utenti, kernel) la fanno Erinix e Vulpnix.",
   "dash.phase.inside.code": "codice e dipendenze",
